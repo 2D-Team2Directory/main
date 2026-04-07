@@ -64,7 +64,8 @@
 
 # 🔬 구현 아키텍처
 
-<img width="1436" height="1116" alt="_- visual selection (3)" src="https://github.com/user-attachments/assets/a6762f01-551e-4565-8414-3ed56355d581" />
+<img width="1090" height="378" alt="_- visual selection" src="https://github.com/user-attachments/assets/72bb4a54-a03c-45fa-9ec8-d3e451263dd7" />
+
 
 
 ```jsx
