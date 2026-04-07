@@ -11,6 +11,14 @@ st.title("AD 공격/방어 로그 대시보드")
 if st.button("새로고침"):
     st.rerun()
 
+if st.button("공격 실행"):
+    # res = requests.post(
+    #     f"{BACKEND_URL}/scenario/run",
+    #     json={"scenario_id": "kerberoast_basic"}
+    # )
+    # st.write(res.json())
+    st.info("실행할 시나리오가 없습니다.")
+
 try:
     res = requests.get(f"{BACKEND_URL}/events?limit=100", timeout=5)
     res.raise_for_status()

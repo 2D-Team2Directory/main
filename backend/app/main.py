@@ -149,3 +149,6 @@ def ingest_events_bulk(events: List[EventIn]):
     conn.commit()
     conn.close()
     return {"result": "saved", "count": len(events)}
+
+def trigger_scenario():
+    return
