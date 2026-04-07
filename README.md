@@ -58,13 +58,11 @@
 
 - 웹 공격 확장
 
-# 🧑‍💻 역할 분담
-
-[(ex)](https://www.notion.so/33bc817ba5278093bd64eb945a1730fc?pvs=21)
 
 # 🔬 구현 아키텍처
 
-![_- visual selection (3).png](attachment:32fc187f-4681-4d95-9453-4b28f606c310:_-_visual_selection_(3).png)
+<img width="1436" height="1116" alt="_- visual selection (3)" src="https://github.com/user-attachments/assets/a6762f01-551e-4565-8414-3ed56355d581" />
+
 
 ```jsx
 # 흐름 예시 
