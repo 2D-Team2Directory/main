@@ -68,7 +68,7 @@
         }
     }
     ```
-> logstash 로 db 에 저장되는 형태로 파싱(예시 : `collector/sample_events_logstash.json`)
+* logstash 로 db 에 저장되는 형태로 파싱(예시 : `collector/sample_events_logstash.json`)
     ```
     {
         "event_time": "2026-04-08T22:12:00",                    # 실제 윈도우에서 이벤트가 발생한 시간
