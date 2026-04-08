@@ -3,6 +3,7 @@
 * `requirements.txt` : 컨테이너 내부에 필요한 파이썬 패키지
 * `Dockerfile` : 필요 항목들을 가지고 실제 컨테이너 구성
 * `docker-compose.yml` : 전체 컨테이너 관리 
+* `docker compose logs <컨테이너명> --tail 100 -f` : 컨테이너 최근 로그 확인 (디버깅용)
 * 환경 내부에 추가 패키지나 추가 컨테이너 필요할 시 해당 파일 수정
 
 ## 실행 방법
@@ -13,7 +14,7 @@
 
 ## 환경 페이지
 * http://localhost:8000/health : 백엔드 정상적으로 떠있는지 체크하는 페이지. {"status":"ok"} 시 정상.
-* http://localhost:8000/docs  : 전체 데이터 결과물들 조회 가능한 페이지
+* http://localhost:8000/docs  : 전체 데이터 조회 가능한 페이지
 * http://localhost:8501 : 대시보드 접속 페이지
 
 ## 설치된 컨테이너

@@ -1,14 +1,18 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import sqlite3
 import os
+import requests
+import uuid
 
 app = FastAPI()
 
 DB_PATH = os.getenv("DB_PATH", "/data/events.db")
+ATTACK_RUNNER_URL = os.getenv("ATTACK_RUNNER_URL", "")
+ATTACK_RUNNER_TOKEN = os.getenv("ATTACK_RUNNER_TOKEN", "")
 
-
+# DB
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -150,5 +154,96 @@ def ingest_events_bulk(events: List[EventIn]):
     conn.close()
     return {"result": "saved", "count": len(events)}
 
-def trigger_scenario():
-    return
+
+# 공격 시나리오 실행
+
+class ScenarioRunRequest(BaseModel):
+    scenario_id: str
+    params: Optional[Dict[str, Any]] = None
+
+
+@app.post("/scenario/run")
+def run_scenario(req: ScenarioRunRequest):
+    if not ATTACK_RUNNER_URL:
+        return {
+            "result": "error",
+            "message": "ATTACK_RUNNER_URL is not configured"
+        }
+
+    run_id = f"run-{uuid.uuid4().hex[:8]}"
+
+    body = {
+        "scenario_id": req.scenario_id,
+        "request_id": run_id,
+        "params": req.params or {}
+    }
+
+    try:
+        res = requests.post(
+            f"{ATTACK_RUNNER_URL}/run-scenario",
+            json=body,
+            headers={"X-API-Token": ATTACK_RUNNER_TOKEN},
+            timeout=10
+        )
+        res.raise_for_status()
+        data = res.json()
+
+        return {
+            "result": "accepted",
+            "run_id": data.get("run_id", run_id),
+            "status": data.get("status", "running"),
+            "scenario_id": data.get("scenario_id", req.scenario_id)
+        }
+
+    except requests.RequestException as e:
+        return {
+            "result": "error",
+            "message": f"Failed to call attack runner: {e}"
+        }
+    
+
+@app.get("/scenario/status/{run_id}")
+def scenario_status(run_id: str):
+    if not ATTACK_RUNNER_URL:
+        return {
+            "result": "error",
+            "message": "ATTACK_RUNNER_URL is not configured"
+        }
+
+    try:
+        res = requests.get(
+            f"{ATTACK_RUNNER_URL}/status/{run_id}",
+            headers={"X-API-Token": ATTACK_RUNNER_TOKEN},
+            timeout=10
+        )
+        res.raise_for_status()
+        return res.json()
+
+    except requests.RequestException as e:
+        return {
+            "result": "error",
+            "message": f"Failed to get scenario status: {e}"
+        }
+    
+@app.get("/scenario/list")
+def scenario_list():
+    if not ATTACK_RUNNER_URL:
+        return {
+            "result": "error",
+            "message": "ATTACK_RUNNER_URL is not configured"
+        }
+
+    try:
+        res = requests.get(
+            f"{ATTACK_RUNNER_URL}/scenario/list",
+            headers={"X-API-Token": ATTACK_RUNNER_TOKEN},
+            timeout=10
+        )
+        res.raise_for_status()
+        return res.json()
+
+    except requests.RequestException as e:
+        return {
+            "result": "error",
+            "message": f"Failed to get scenario list: {e}"
+        }

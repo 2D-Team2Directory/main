@@ -9,7 +9,9 @@ services:
     volumes:
       - ./data:/data
     environment:
-      - DB_PATH=/data/events.db
+      - DB_PATH=${DB_PATH}
+      - ATTACK_RUNNER_URL=${ATTACK_RUNNER_URL}
+      - ATTACK_RUNNER_TOKEN=${ATTACK_RUNNER_TOKEN}
     networks:
       - adlab-net
 
