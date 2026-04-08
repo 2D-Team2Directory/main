@@ -32,7 +32,7 @@
 
 - VM 기반의 독립적 AD 실습 환경 구축
 - 사용자, 관리자, 서비스 계정, 그룹, OU 구성
-- VMWare (AD) : Windows 서버 , Windows 클라이언트, Linux 공격 머신
+- VMWare : Windows 서버(AD) , Windows 클라이언트(AD), Linux 공격 머신(Kali)
 - Docker : 로그 수집, 분석, 백엔드, 대시보드 등
 
 ## 2. 공격 시나리오 재현
@@ -70,80 +70,43 @@
 
 ```jsx
 # 흐름 예시 
-
-[Dashboard / Web UI]
-        │
-        ├─ 시나리오 실행 요청
-        ├─ 타임라인 조회
-        ├─ 이벤트 상세 조회
-        ├─ 위험도/경고 확인
-        └─ 공격-방어 결과 비교
-        │
-        ▼
-[Backend API / Service]
-        │
-        ├─ 이벤트 저장 / 조회 API
-        ├─ 공격 VM에 시나리오 실행 요청 중계
-        ├─ 실행 상태 조회
-        └─ DB 연동
-        │
-        ├──────────────────────────────┐
-        │                              │
-        ▼                              ▼
-[DB]                           [Analysis / Rule Engine]
-                                       │
-                                       ├─ 이벤트 상관분석
-                                       ├─ ATT&CK 매핑
-                                       ├─ 위험도 계산
-                                       └─ 경고 생성
-                                       │
-                                       ▼
-                                [Backend / Dashboard 반영]
-
-
-
-[Attacker VM (Kali + attack_runner)]     [Windows Client]        [Admin PC]
-        │                                 │                      │
-        │ 공격 시나리오 실행               │ 정상 로그인/행위      │ 권한 변경/관리 작업
-        │ (backend 요청 기반)              │                      │
-        └──────────────┬──────────────────┴──────────────────────┘
+[Attacker VM (Kali + attack_runner)]     [Windows Client]      [Admin PC]
+        │                                 │                    │
+        │ 공격 실행                       │ 정상 행위           │ 관리 작업
+        └──────────────┬──────────────────┴────────────────────┘
                        ▼
                [Domain Controller (AD)]
                        │
                        │ 인증 / 권한 변경 / 티켓 요청 / 보안 이벤트
                        ▼
-      [Winlogbeat / Sysmon / Windows Event Logs]
+      [Windows Event Logs / Sysmon / Winlogbeat]
                        │
-                       │ 로그 전송
                        ▼
          [Collector / Parser (Logstash)]
                        │
-                       │ 로그 수집 / 정규화 / 파싱
                        ▼
-                [Backend API / Service]
-
-
-
-# 방어 적용 후 재검증 흐름
-
-[관리자 / 실험자]
-        │
-        ├─ 방어 정책 적용
-        │   ├─ LLMNR / NetBIOS 비활성화
-        │   ├─ 서비스 계정 비밀번호 강화
-        │   ├─ 관리자 계정 사용 제한
-        │   └─ 감사 정책 / GPO 강화
-        │
-        └─ 동일 공격 시나리오 재실행
-                │
-                ▼
-      [Attacker VM (Kali + attack_runner)]
-                │
-                ▼
-         [로그 재수집 / 재분석 / 결과 비교]
-                │
-                ▼
-         [Dashboard / Web UI에서 전후 비교]
+              [Backend API / Service] ─────────────── [DB]
+                       │
+                       ├─ 이벤트 저장 / 조회
+                       ├─ 공격 시나리오 실행 요청 중계
+                       ├─ 실행 상태 조회
+                       │
+                       ▼
+              [Analysis / Rule Engine]
+                       │
+                       ├─ 이벤트 상관분석
+                       ├─ ATT&CK 매핑
+                       ├─ 위험도 계산
+                       └─ 경고 생성
+                       │
+                       ▼
+               [Dashboard / Web UI]
+                       │
+                       ├─ 시나리오 실행
+                       ├─ 타임라인 조회
+                       ├─ 이벤트 상세 조회
+                       ├─ 위험도 / 경고 확인
+                       └─ 공격-방어 결과 비교
 ```
 
 <br>
