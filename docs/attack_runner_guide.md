@@ -2,7 +2,7 @@
 대시보드-백엔드의 실행 명령을 통해 kali 공격 vm 내부 `attack_runner` 가 실제 시나리오를 실행
 
 ## Kali VM
-* vmx 파일 다운로드 (VMware) : https://drive.google.com/file/d/1VDAtxnrpsg1gIVRpLVVuRQ76_9nxZuLs/view?usp=sharing
+* kali vmx 파일 다운로드 (VMware) : https://drive.google.com/file/d/1VDAtxnrpsg1gIVRpLVVuRQ76_9nxZuLs/view?usp=sharing
 * ip 확인 : `ip a`
 
 ## attack_runner (Kali)
