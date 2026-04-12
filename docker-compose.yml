@@ -27,6 +27,8 @@ services:
       - ./collector:/usr/share/logstash/testdata
     depends_on:
       - backend
+    environment:
+      - xpack.monitoring.enabled=false
     networks:
       - adlab-net
 
