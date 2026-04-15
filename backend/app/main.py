@@ -35,7 +35,7 @@ def init_db():
         service_name TEXT,
         message TEXT,
         raw_json TEXT
-    )
+    );
     """)
     conn.commit()
     conn.close()
@@ -175,7 +175,9 @@ def run_scenario(req: ScenarioRunRequest):
     body = {
         "scenario_id": req.scenario_id,
         "request_id": run_id,
-        "params": req.params or {}
+        "params": {
+            **(req.params or {}),
+        }
     }
 
     try:
@@ -185,7 +187,18 @@ def run_scenario(req: ScenarioRunRequest):
             headers={"X-API-Token": ATTACK_RUNNER_TOKEN},
             timeout=10
         )
-        res.raise_for_status()
+
+        if res.status_code >= 400:
+            try:
+                err = res.json()
+            except Exception:
+                err = {"detail": res.text}
+
+            return {
+                "result": "error",
+                "message": err.get("detail", "Failed to call attack runner")
+            }
+        
         data = res.json()
 
         return {
@@ -246,4 +259,51 @@ def scenario_list():
         return {
             "result": "error",
             "message": f"Failed to get scenario list: {e}"
+        }
+
+
+@app.get("/scenario-runs")
+def list_scenario_runs(limit: int = 5):
+    if not ATTACK_RUNNER_URL:
+        return {
+            "result": "error",
+            "message": "ATTACK_RUNNER_URL is not configured"
+        }
+
+    try:
+        res = requests.get(
+            f"{ATTACK_RUNNER_URL}/scenario-runs",
+            headers={"X-API-Token": ATTACK_RUNNER_TOKEN},
+            params={"limit": limit},
+            timeout=10
+        )
+        res.raise_for_status()
+        return res.json()
+    except requests.RequestException as e:
+        return {
+            "result": "error",
+            "message": f"Failed to get scenario runs: {e}"
+        }
+    
+
+@app.get("/scenario-runs/running")
+def list_running_scenario_runs():
+    if not ATTACK_RUNNER_URL:
+        return {
+            "result": "error",
+            "message": "ATTACK_RUNNER_URL is not configured"
+        }
+
+    try:
+        res = requests.get(
+            f"{ATTACK_RUNNER_URL}/scenario-runs/running",
+            headers={"X-API-Token": ATTACK_RUNNER_TOKEN},
+            timeout=10
+        )
+        res.raise_for_status()
+        return res.json()
+    except requests.RequestException as e:
+        return {
+            "result": "error",
+            "message": f"Failed to get running scenario runs: {e}"
         }
