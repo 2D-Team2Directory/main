@@ -1,0 +1,51 @@
+rules:
+  - rule_id: RULE-001
+    name: 로그인 실패 급증
+    type: aggregation
+    enabled: true
+
+    match:
+      event_type: login_failure
+
+    group_by: [username]
+    window:
+      minutes: 5
+    threshold:
+      count_gte: 10
+
+    severity: medium
+    score: 50
+
+    score_modifiers:
+      - field: is_admin_account
+        op: eq
+        value: true
+        add: 20
+
+    attack:
+      tactic: Credential Access
+      technique: T1110
+
+    response_guide:
+      - 계정 잠금 정책 확인
+      - source_ip 차단 검토
+
+  - rule_id: RULE-002
+    name: 관리자 그룹 변경
+    type: single_event
+    enabled: true
+
+    match:
+      event_type: group_change
+      group_name: Domain Admins
+
+    severity: high
+    score: 80
+
+    attack:
+      tactic: Privilege Escalation
+      technique: T1098
+
+    response_guide:
+      - 그룹 변경 수행 계정 확인
+      - 변경 승인 여부 검토

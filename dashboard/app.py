@@ -1,4 +1,5 @@
 import os
+import json
 import requests
 import streamlit as st
 import pandas as pd
@@ -40,7 +41,105 @@ with tab_defense:
     else:
         df = pd.DataFrame(data)
         st.subheader("최근 이벤트")
-        st.dataframe(df, use_container_width=True)
+        
+        for idx, item in enumerate(data):
+            try:
+                event_json = json.loads(item.get("event_json") or "{}")
+            except Exception:
+                event_json = {}
+
+            try:
+                normalized = json.loads(item.get("normalized_json") or "{}")
+            except Exception:
+                normalized = {}
+
+            try:
+                detection = json.loads(item.get("detection_json") or "{}")
+            except Exception:
+                detection = {}
+
+            try:
+                risk = json.loads(item.get("risk_json") or "{}")
+            except Exception:
+                risk = {}
+
+            try:
+                raw_json = json.loads(item.get("raw_json") or "{}")
+            except Exception:
+                raw_json = item.get("raw_json")
+
+            event_time = item.get("event_time", "-")
+            event_id = item.get("event_id", "-")
+            computer_name = item.get("computer_name", "-")
+            username = item.get("username", "-")
+            source_ip = item.get("source_ip", "-")
+            group_name = item.get("group_name", "-")
+            message = item.get("message", "-")
+
+            event_type = normalized.get("event_type", "-")
+            host_role = normalized.get("host_role", "-")
+            account_type = normalized.get("account_type", "-")
+            is_admin = normalized.get("is_admin_account", False)
+            is_off_hours = normalized.get("is_off_hours", False)
+
+            detected = detection.get("detected", False)
+            rule_name = detection.get("rule_name", "-")
+            attack_tactic = detection.get("attack_tactic", "-")
+
+            severity = risk.get("severity", "none")
+            final_score = risk.get("final_score", 0)
+
+            with st.container(border=True):
+                top1, top2, top3 = st.columns([4, 3, 3])
+
+                with top1:
+                    st.markdown(f"**{event_time}**")
+                    st.write(f"이벤트 ID: `{event_id}`")
+                    st.write(f"호스트: `{computer_name}`")
+                    st.write(f"사용자: `{username}`")
+
+                with top2:
+                    st.write(f"이벤트 타입: **{event_type}**")
+                    st.write(f"호스트 역할: **{host_role}**")
+                    st.write(f"계정 유형: **{account_type}**")
+                    st.write(f"관리자 계정 여부: **{is_admin}**")
+                    st.write(f"업무 외 시간 여부: **{is_off_hours}**")
+
+                with top3:
+                    st.write(f"탐지 여부: **{detected}**")
+                    st.write(f"탐지 룰: **{rule_name}**")
+                    st.write(f"ATT&CK Tactic: **{attack_tactic}**")
+                    st.write(f"위험도: **{severity}**")
+                    st.write(f"점수: **{final_score}**")
+
+                meta1, meta2 = st.columns(2)
+                with meta1:
+                    st.write(f"Source IP: `{source_ip}`")
+                    st.write(f"Group: `{group_name}`")
+                with meta2:
+                    st.write(f"메시지: {message}")
+
+                with st.expander("상세보기"):
+                    st.markdown("**event_json**")
+                    st.json(event_json)
+
+                    st.markdown("**normalized_json**")
+                    st.json(normalized)
+
+                    st.markdown("**detection_json**")
+                    st.json(detection)
+
+                    st.markdown("**risk_json**")
+                    st.json(risk)
+
+                    st.markdown("**raw_json**")
+                    st.json(raw_json if isinstance(raw_json, dict) else {"raw_text": raw_json})
+
+
+
+
+
+
 
         st.subheader("이벤트 요약")
         if "event_id" in df.columns:

@@ -2,7 +2,9 @@ version: "3.9"
 
 services:
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: adlab-backend
     ports:
       - "8000:8000"
