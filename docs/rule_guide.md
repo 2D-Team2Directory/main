@@ -2,20 +2,20 @@
 
 ## db 최종 저장 형태
 ```
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-event_time TEXT,
-ingested_at TEXT DEFAULT CURRENT_TIMESTAMP,
-event_id TEXT,
-computer_name TEXT,
-username TEXT,
-source_ip TEXT,
-group_name TEXT,
-message TEXT,
-raw_json TEXT,
-event_json TEXT,
-normalized_json TEXT,
-detection_json TEXT,
-risk_json TEXT
+id 
+event_time
+ingested_at 
+event_id
+computer_name 
+username 
+source_ip 
+group_name
+message 
+raw_json 
+event_json (아래 상세 내역 참고)
+normalized_json (아래 상세 내역 참고)
+detection_json (아래 상세 내역 참고)
+risk_json  (아래 상세 내역 참고)
 ```
 
 * `event_json`
