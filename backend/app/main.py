@@ -5,6 +5,8 @@ import sqlite3
 import os
 import requests
 import uuid
+import json
+from datetime import datetime
 
 app = FastAPI()
 
@@ -12,10 +14,151 @@ DB_PATH = os.getenv("DB_PATH", "/data/events.db")
 ATTACK_RUNNER_URL = os.getenv("ATTACK_RUNNER_URL", "")
 ATTACK_RUNNER_TOKEN = os.getenv("ATTACK_RUNNER_TOKEN", "")
 
+
+def get_event_type(event_id: Optional[str]) -> str:
+    event_id = str(event_id) if event_id is not None else ""
+
+    if event_id == "4624":
+        return "login_success"
+    if event_id == "4625":
+        return "login_failure"
+    if event_id == "4720":
+        return "account_created"
+    if event_id in ["4732", "4756"]:
+        return "group_change"
+    if event_id in ["4768", "4769"]:
+        return "kerberos_request"
+
+    return "unknown"
+
+
+def get_host_role(computer_name: Optional[str]) -> str:
+    if not computer_name:
+        return "unknown"
+
+    name = computer_name.lower()
+
+    if "dc" in name:
+        return "dc"
+    if "server" in name:
+        return "server"
+
+    return "client"
+
+
+def is_admin_name(name: Optional[str]) -> bool:
+    if not name:
+        return False
+
+    lowered = name.lower()
+    admin_keywords = ["administrator", "admin", "domain admin"]
+
+    return any(keyword in lowered for keyword in admin_keywords)
+
+
+def get_account_type(username: Optional[str], target_user: Optional[str]) -> str:
+    name = target_user or username
+    if not name:
+        return "unknown"
+
+    lowered = name.lower()
+
+    if name.endswith("$"):
+        return "machine"
+    if "svc" in lowered or "service" in lowered or "sql" in lowered:
+        return "service"
+    if is_admin_name(name):
+        return "admin"
+
+    return "user"
+
+
+def is_privileged_account(username: Optional[str], target_user: Optional[str]) -> bool:
+    account_type = get_account_type(username, target_user)
+    return account_type in ["admin", "service"]
+
+
+def is_off_hours_time(event_time: Optional[str]) -> bool:
+    if not event_time:
+        return False
+
+    try:
+        dt = datetime.fromisoformat(event_time.replace("Z", "+00:00"))
+        hour = dt.hour
+        return hour < 8 or hour >= 20
+    except Exception:
+        return False
+
+
+def build_event_bundle(event):
+    event_part = {
+        "id": None,
+        "event_time": event.event_time,
+        "ingested_at": None,
+        "event_id": str(event.event_id) if event.event_id is not None else None,
+        "provider": event.provider,
+        "channel": event.channel,
+        "level": event.level,
+        "computer_name": event.computer_name,
+        "username": event.username,
+        "source_ip": event.source_ip,
+        "target_user": event.target_user,
+        "target_host": event.target_host,
+        "group_name": event.group_name,
+        "logon_type": event.logon_type,
+        "service_name": event.service_name,
+        "message": event.message,
+    }
+
+    normalized_part = {
+        "event_type": get_event_type(event.event_id),
+        "host_role": get_host_role(event.computer_name),
+        "account_type": get_account_type(event.username, event.target_user),
+        "is_admin_account": is_admin_name(event.target_user or event.username),
+        "is_privileged": is_privileged_account(event.username, event.target_user),
+        "is_off_hours": is_off_hours_time(event.event_time),
+    }
+
+    detection_part = {
+        "detected": False,
+        "rule_id": None,
+        "rule_name": None,
+        "reason": [],
+        "attack_tactic": None,
+        "attack_technique": None,
+        "response_guide": [],
+    }
+
+    risk_part = {
+        "base_score": 0,
+        "weight": 0,
+        "final_score": 0,
+        "severity": "none",
+    }
+
+    try:
+        original_event = json.loads(event.raw_json) if event.raw_json else {}
+    except (TypeError, json.JSONDecodeError):
+        original_event = {"raw_text": event.raw_json} if event.raw_json else {}
+
+    raw_part = {
+        "original_event": original_event
+    }
+
+    return {
+        "event": event_part,
+        "normalized": normalized_part,
+        "detection": detection_part,
+        "risk": risk_part,
+        "raw_json": raw_part,
+    }
+
+
 # DB
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,9 +177,25 @@ def init_db():
         logon_type TEXT,
         service_name TEXT,
         message TEXT,
-        raw_json TEXT
-    );
+        raw_json TEXT,
+        event_json TEXT,
+        normalized_json TEXT,
+        detection_json TEXT,
+        risk_json TEXT
+    )
     """)
+
+    for sql in [
+        "ALTER TABLE events ADD COLUMN event_json TEXT",
+        "ALTER TABLE events ADD COLUMN normalized_json TEXT",
+        "ALTER TABLE events ADD COLUMN detection_json TEXT",
+        "ALTER TABLE events ADD COLUMN risk_json TEXT",
+    ]:
+        try:
+            cur.execute(sql)
+        except sqlite3.OperationalError:
+            pass
+
     conn.commit()
     conn.close()
 
@@ -75,13 +234,16 @@ def ingest_event(event: EventIn):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
+    bundle = build_event_bundle(event)
+
     cur.execute("""
         INSERT INTO events (
             event_time, event_id, provider, channel, level,
             computer_name, username, source_ip,
             target_user, target_host, group_name,
-            logon_type, service_name, message, raw_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            logon_type, service_name, message, raw_json,
+            event_json, normalized_json, detection_json, risk_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         event.event_time,
         event.event_id,
@@ -97,7 +259,11 @@ def ingest_event(event: EventIn):
         event.logon_type,
         event.service_name,
         event.message,
-        event.raw_json
+        event.raw_json,
+        json.dumps(bundle["event"], ensure_ascii=False),
+        json.dumps(bundle["normalized"], ensure_ascii=False),
+        json.dumps(bundle["detection"], ensure_ascii=False),
+        json.dumps(bundle["risk"], ensure_ascii=False),
     ))
 
     conn.commit()
@@ -119,19 +285,23 @@ def list_events(limit: int = 50):
     conn.close()
     return rows
 
+
 @app.post("/events/bulk")
 def ingest_events_bulk(events: List[EventIn]):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     for event in events:
+        bundle = build_event_bundle(event)
+
         cur.execute("""
             INSERT INTO events (
                 event_time, event_id, provider, channel, level,
                 computer_name, username, source_ip,
                 target_user, target_host, group_name,
-                logon_type, service_name, message, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                logon_type, service_name, message, raw_json,
+                event_json, normalized_json, detection_json, risk_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             event.event_time,
             event.event_id,
@@ -147,7 +317,11 @@ def ingest_events_bulk(events: List[EventIn]):
             event.logon_type,
             event.service_name,
             event.message,
-            event.raw_json
+            event.raw_json,
+            json.dumps(bundle["event"], ensure_ascii=False),
+            json.dumps(bundle["normalized"], ensure_ascii=False),
+            json.dumps(bundle["detection"], ensure_ascii=False),
+            json.dumps(bundle["risk"], ensure_ascii=False),
         ))
 
     conn.commit()
@@ -156,7 +330,6 @@ def ingest_events_bulk(events: List[EventIn]):
 
 
 # 공격 시나리오 실행
-
 class ScenarioRunRequest(BaseModel):
     scenario_id: str
     params: Optional[Dict[str, Any]] = None
@@ -175,9 +348,7 @@ def run_scenario(req: ScenarioRunRequest):
     body = {
         "scenario_id": req.scenario_id,
         "request_id": run_id,
-        "params": {
-            **(req.params or {}),
-        }
+        "params": req.params or {}
     }
 
     try:
@@ -187,18 +358,7 @@ def run_scenario(req: ScenarioRunRequest):
             headers={"X-API-Token": ATTACK_RUNNER_TOKEN},
             timeout=10
         )
-
-        if res.status_code >= 400:
-            try:
-                err = res.json()
-            except Exception:
-                err = {"detail": res.text}
-
-            return {
-                "result": "error",
-                "message": err.get("detail", "Failed to call attack runner")
-            }
-        
+        res.raise_for_status()
         data = res.json()
 
         return {
@@ -213,7 +373,7 @@ def run_scenario(req: ScenarioRunRequest):
             "result": "error",
             "message": f"Failed to call attack runner: {e}"
         }
-    
+
 
 @app.get("/scenario/status/{run_id}")
 def scenario_status(run_id: str):
@@ -237,7 +397,8 @@ def scenario_status(run_id: str):
             "result": "error",
             "message": f"Failed to get scenario status: {e}"
         }
-    
+
+
 @app.get("/scenario/list")
 def scenario_list():
     if not ATTACK_RUNNER_URL:
@@ -259,51 +420,4 @@ def scenario_list():
         return {
             "result": "error",
             "message": f"Failed to get scenario list: {e}"
-        }
-
-
-@app.get("/scenario-runs")
-def list_scenario_runs(limit: int = 5):
-    if not ATTACK_RUNNER_URL:
-        return {
-            "result": "error",
-            "message": "ATTACK_RUNNER_URL is not configured"
-        }
-
-    try:
-        res = requests.get(
-            f"{ATTACK_RUNNER_URL}/scenario-runs",
-            headers={"X-API-Token": ATTACK_RUNNER_TOKEN},
-            params={"limit": limit},
-            timeout=10
-        )
-        res.raise_for_status()
-        return res.json()
-    except requests.RequestException as e:
-        return {
-            "result": "error",
-            "message": f"Failed to get scenario runs: {e}"
-        }
-    
-
-@app.get("/scenario-runs/running")
-def list_running_scenario_runs():
-    if not ATTACK_RUNNER_URL:
-        return {
-            "result": "error",
-            "message": "ATTACK_RUNNER_URL is not configured"
-        }
-
-    try:
-        res = requests.get(
-            f"{ATTACK_RUNNER_URL}/scenario-runs/running",
-            headers={"X-API-Token": ATTACK_RUNNER_TOKEN},
-            timeout=10
-        )
-        res.raise_for_status()
-        return res.json()
-    except requests.RequestException as e:
-        return {
-            "result": "error",
-            "message": f"Failed to get running scenario runs: {e}"
         }
