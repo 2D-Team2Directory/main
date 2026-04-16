@@ -76,5 +76,3 @@ source .venv/bin/activate
 uvicorn app.main:app --host 0.0.0.0 --port 9000     # 중단 : Ctrl + C
 ```
 
-## 시나리오 파일 형식 예시
-
