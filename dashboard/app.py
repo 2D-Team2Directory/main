@@ -8,6 +8,86 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
 ATTACK_REQUESTED_BY = os.getenv("ATTACK_REQUESTED_BY", "")
 VICTIM_URL = os.getenv("VICTIM_URL", "")
 
+def render_param_field(scenario_id: str, field: dict):
+    field_name = field.get("name")
+    field_label = field.get("label") or field_name
+    field_type = field.get("type", "text")
+    field_required = field.get("required", False)
+    field_default = field.get("default")
+    field_help = field.get("help", "")
+    field_options = field.get("options", [])
+
+    if not field_name:
+        return None, None
+
+    widget_key = f"{scenario_id}_{field_name}"
+
+    label_text = field_label
+    if field_required:
+        label_text += " *"
+
+    if field_type == "number":
+        value = st.number_input(
+            label_text,
+            value=int(field_default) if field_default is not None else 0,
+            step=1,
+            key=widget_key,
+            help=field_help
+        )
+
+    elif field_type == "password":
+        value = st.text_input(
+            label_text,
+            value=str(field_default) if field_default is not None else "",
+            type="password",
+            key=widget_key,
+            help=field_help
+        )
+
+    elif field_type == "select":
+        options = field_options if isinstance(field_options, list) and field_options else [""]
+        default_index = 0
+        if field_default in options:
+            default_index = options.index(field_default)
+
+        value = st.selectbox(
+            label_text,
+            options=options,
+            index=default_index,
+            key=widget_key,
+            help=field_help
+        )
+
+    elif field_type == "checkbox":
+        value = st.checkbox(
+            label_text,
+            value=bool(field_default) if field_default is not None else False,
+            key=widget_key,
+            help=field_help
+        )
+
+    elif field_type == "textarea":
+        value = st.text_area(
+            label_text,
+            value=str(field_default) if field_default is not None else "",
+            key=widget_key,
+            help=field_help
+        )
+
+    else:
+        value = st.text_input(
+            label_text,
+            value=str(field_default) if field_default is not None else "",
+            key=widget_key,
+            help=field_help
+        )
+
+    return field_name, value
+
+
+
+
+
 st.set_page_config(page_title="AD Log Dashboard", layout="wide")
 st.title("AD 공격/방어 로그 대시보드")
 
@@ -23,10 +103,14 @@ if "last_requested_by" not in st.session_state:
 tab_defense, tab_attack = st.tabs(["🛡️ 방어", "⚔️ 공격"])
 
 with tab_defense:
-    st.subheader("방어 모니터링")
+    col_title, col_refresh, col_rest = st.columns([2.5, 0.5, 7])
 
-    if st.button("이벤트 새로고침"):
-        st.rerun()
+    with col_title:
+        st.subheader("방어 모니터링")
+
+    with col_refresh:
+        if st.button("↻", help="이벤트 새로고침"):
+            st.rerun()
 
     try:
         res = requests.get(f"{BACKEND_URL}/events?limit=100", timeout=5)
@@ -40,9 +124,34 @@ with tab_defense:
         st.info("수집된 이벤트가 없습니다.")
     else:
         df = pd.DataFrame(data)
-        st.subheader("최근 이벤트")
         
-        for idx, item in enumerate(data):
+        st.subheader("이벤트 요약")
+        if "event_id" in df.columns:
+            st.write(df["event_id"].value_counts().head(10))
+
+
+        st.subheader("최근 이벤트")
+
+        col_page_size, col_page = st.columns([5, 5])
+        with col_page_size:
+            page_size = st.selectbox("페이지당 로그 수", [5, 10, 20], index=0)
+        with col_page:
+            page = st.number_input("페이지", min_value=1, value=1, step=1)
+
+
+        total = len(data)
+        total_pages = max(1, (total + page_size - 1) // page_size)
+
+        if page > total_pages:
+            page = total_pages
+
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        page_items = data[start_idx:end_idx]
+
+        st.caption(f"전체 {total}건 / {page}페이지 / 총 {total_pages}페이지")
+
+        for item in page_items:
             try:
                 event_json = json.loads(item.get("event_json") or "{}")
             except Exception:
@@ -85,39 +194,98 @@ with tab_defense:
             detected = detection.get("detected", False)
             rule_name = detection.get("rule_name", "-")
             attack_tactic = detection.get("attack_tactic", "-")
+            attack_technique = detection.get("attack_technique", "-")
+            reasons = detection.get("reason", [])
+            response_guide = detection.get("response_guide", [])
 
             severity = risk.get("severity", "none")
             final_score = risk.get("final_score", 0)
 
             with st.container(border=True):
-                top1, top2, top3 = st.columns([4, 3, 3])
+                # st.markdown(f"**[🔎 ID {event_id}]  {computer_name}  |  {event_time}**")
+                st.markdown(
+                    f"""
+                    <div style="
+                        font-size: 1.15rem;
+                        font-weight: 600;
+                        margin-bottom: 0.6rem;
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                        flex-wrap: wrap;
+                    ">
+                        <span style="
+                            background-color: #eef2ff;
+                            color: #3730a3;
+                            padding: 4px 10px;
+                            border-radius: 999px;
+                            font-size: 1rem;
+                            font-weight: 700;
+                        ">
+                            🔎 ID {event_id} 
+                        </span>
+                        <span style="
+                            background-color: #FAF4C0;
+                            color: #425518;
+                            padding: 4px 10px;
+                            border-radius: 999px;
+                            font-size: 1rem;
+                            font-weight: 700;
+                        ">
+                            {computer_name}
+                        </span>
+                        <span style="color: #9ca3af;">|</span>
+                        <span style="color: #6b7280; font-weight: 500;">{event_time}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+)
 
-                with top1:
-                    st.markdown(f"**{event_time}**")
-                    st.write(f"이벤트 ID: `{event_id}`")
-                    st.write(f"호스트: `{computer_name}`")
-                    st.write(f"사용자: `{username}`")
+                row1 = st.columns(3)
+                row1[0].write(f"사용자: **{username}**")
+                row1[1].write(f"이벤트 타입: **{event_type}**")
+                row1[2].write(f"호스트 역할: **{host_role}**")
 
-                with top2:
-                    st.write(f"이벤트 타입: **{event_type}**")
-                    st.write(f"호스트 역할: **{host_role}**")
-                    st.write(f"계정 유형: **{account_type}**")
-                    st.write(f"관리자 계정 여부: **{is_admin}**")
-                    st.write(f"업무 외 시간 여부: **{is_off_hours}**")
+                row2 = st.columns(3)
+                row2[0].write(f"계정 유형: **{account_type}**")
+                row2[1].write(f"관리자 계정 여부: **{is_admin}**")
+                row2[2].write(f"업무 외 시간 여부: **{is_off_hours}**")
 
-                with top3:
-                    st.write(f"탐지 여부: **{detected}**")
-                    st.write(f"탐지 룰: **{rule_name}**")
-                    st.write(f"ATT&CK Tactic: **{attack_tactic}**")
-                    st.write(f"위험도: **{severity}**")
-                    st.write(f"점수: **{final_score}**")
+                row3 = st.columns(3)
+                row3[0].write(f"Source IP: **{source_ip}**")
+                if group_name and group_name != "-":
+                    row3[1].write(f"그룹: **{group_name}**")
+                row3[2].write(f"")
+                
 
-                meta1, meta2 = st.columns(2)
-                with meta1:
-                    st.write(f"Source IP: `{source_ip}`")
-                    st.write(f"Group: `{group_name}`")
-                with meta2:
-                    st.write(f"메시지: {message}")
+                if message and message != "-":
+                    preview_len = len(message)
+                    with st.expander(f"메시지 보기 ({preview_len}자)", expanded=False):
+                        st.write(message)
+
+                st.divider()
+                st.markdown("**탐지 결과**")
+
+                det1 = st.columns(3)
+                det1[0].write(f"탐지 여부: **{detected}**")
+                det1[1].write(f"탐지 룰: **{rule_name}**")
+                det1[2].write(f"위험도: **{severity}**")
+
+                det2 = st.columns(2)
+                det2[0].write(f"ATT&CK Tactic: **{attack_tactic}**")
+                det2[1].write(f"ATT&CK Technique: **{attack_technique}**")
+
+                st.write(f"점수: **{final_score}**")
+
+                if reasons:
+                    st.write("사유:")
+                    for r in reasons:
+                        st.write(f"- {r}")
+
+                if response_guide:
+                    st.write("대응 가이드:")
+                    for g in response_guide:
+                        st.write(f"- {g}")
 
                 with st.expander("상세보기"):
                     st.markdown("**event_json**")
@@ -133,17 +301,12 @@ with tab_defense:
                     st.json(risk)
 
                     st.markdown("**raw_json**")
-                    st.json(raw_json if isinstance(raw_json, dict) else {"raw_text": raw_json})
+                    if isinstance(raw_json, dict):
+                        st.json(raw_json)
+                    else:
+                        st.code(str(raw_json))
 
-
-
-
-
-
-
-        st.subheader("이벤트 요약")
-        if "event_id" in df.columns:
-            st.write(df["event_id"].value_counts().head(10))
+# ------------------------------------------
 
 with tab_attack:
     st.subheader("최근 실행 이력")
@@ -226,44 +389,96 @@ with tab_attack:
         st.error(scenarios.get("message"))
     else:
         for scenario in scenarios:
+            scenario_id = scenario["scenario_id"]
+            params_schema = scenario.get("params_schema") or []
+
             with st.container(border=True):
                 c1, c2 = st.columns([8, 2])
 
                 with c1:
                     st.markdown(f"**{scenario['label']}**")
 
+                extra_params = {}
+
+                # params_schema가 있을 때만 확장 입력 폼 표시
+                if params_schema:
+                    with st.expander("파라미터 설정", expanded=False):
+                        st.caption("이 시나리오는 추가 파라미터 입력을 지원합니다.")
+
+                        for field in params_schema:
+                            field_name, value = render_param_field(scenario_id, field)
+                            if field_name:
+                                extra_params[field_name] = value
+
+                        helps = [
+                            f"- **{f.get('label') or f.get('name')}**: {f.get('help')}"
+                            for f in params_schema
+                            if f.get("help")
+                        ]
+                        if helps:
+                            st.markdown("**파라미터 설명**")
+                            for line in helps:
+                                st.markdown(line)
+
                 with c2:
-                    if st.button("실행", key=f"run_{scenario['scenario_id']}"):
+                    if st.button("실행", key=f"run_{scenario_id}"):
                         if not target_ip.strip():
                             st.warning("타겟 IP를 입력하세요.")
                         elif not requested_by.strip():
                             st.warning("실행자를 입력하세요.")
                         else:
-                            try:
-                                run_res = requests.post(
-                                    f"{BACKEND_URL}/scenario/run",
-                                    json={
-                                        "scenario_id": scenario["scenario_id"],
-                                        "params": {
-                                            "target_ip": target_ip.strip(),
-                                            "requested_by": requested_by.strip()
-                                        }
-                                    },
-                                    timeout=10
-                                )
-                                run_res.raise_for_status()
-                                result = run_res.json()
+                            # required 검사
+                            missing_fields = []
+                            for field in params_schema:
+                                if not field.get("required", False):
+                                    continue
 
-                                if result.get("result") == "error":
-                                    st.warning(result.get("message", "시나리오 실행이 거부되었습니다."))
-                                else:
-                                    st.session_state.last_run_id = result.get("run_id")
-                                    st.session_state.last_scenario_id = result.get("scenario_id")
-                                    st.session_state.last_target_ip = target_ip.strip()
-                                    st.session_state.last_requested_by = requested_by.strip()
-                                    st.success(f"{scenario['label']} 실행 요청 완료")
-                            except Exception as e:
-                                st.error(f"시나리오 실행 실패: {e}")
+                                field_name = field.get("name")
+                                value = extra_params.get(field_name)
+
+                                if value is None:
+                                    missing_fields.append(field.get("label") or field_name)
+                                elif isinstance(value, str) and not value.strip():
+                                    missing_fields.append(field.get("label") or field_name)
+
+                            if missing_fields:
+                                st.warning(f"필수 파라미터를 입력하세요: {', '.join(missing_fields)}")
+                            else:
+                                params = {
+                                    "target_ip": target_ip.strip(),
+                                    "requested_by": requested_by.strip(),
+                                }
+
+                                # 빈 문자열은 제외하고 추가
+                                for k, v in extra_params.items():
+                                    if isinstance(v, str):
+                                        if v.strip():
+                                            params[k] = v.strip()
+                                    else:
+                                        params[k] = v
+
+                                try:
+                                    run_res = requests.post(
+                                        f"{BACKEND_URL}/scenario/run",
+                                        json={
+                                            "scenario_id": scenario_id,
+                                            "params": params
+                                        },
+                                        timeout=10
+                                    )
+                                    run_res.raise_for_status()
+                                    result = run_res.json()
+
+                                    if result.get("result") == "error":
+                                        st.warning(result.get("message", "시나리오 실행이 거부되었습니다."))
+                                    else:
+                                        st.session_state.last_run_id = result.get("run_id")
+                                        st.session_state.last_scenario_id = result.get("scenario_id")
+                                        st.session_state.last_target_ip = target_ip.strip()
+                                        st.session_state.last_requested_by = requested_by.strip()
+                                        st.success(f"{scenario['label']} 실행 요청 완료")
+                                except Exception as e:
+                                    st.error(f"시나리오 실행 실패: {e}")
 
 
     st.divider()
@@ -324,3 +539,8 @@ with tab_attack:
                 st.error(f"상태 조회 실패: {e}")
     else:
         st.info("아직 실행한 시나리오가 없습니다.")
+
+
+
+
+
