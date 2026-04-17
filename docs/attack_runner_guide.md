@@ -71,7 +71,7 @@ exit 0          # 0 : success, 이외 값 : fail
 
 ### 3. 파일 추가시 attack_runner 재시작
 ```
-cd ~/attack_runner
+cd ~/attack-runner
 source .venv/bin/activate
 uvicorn app.main:app --host 0.0.0.0 --port 9000     # 중단 : Ctrl + C
 ```
