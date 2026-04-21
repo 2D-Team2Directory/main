@@ -7,7 +7,7 @@ rules:
     match:
       event_type: login_failure
 
-    group_by: [username]
+    group_by: [targer_user]
     window:
       minutes: 5
     threshold:
@@ -31,21 +31,217 @@ rules:
       - source_ip 차단 검토
 
   - rule_id: RULE-002
-    name: 관리자 그룹 변경
-    type: single_event
+    name: 관리자 계정 로그인 성공
     enabled: true
-
+    type: single_event
     match:
-      event_type: group_change
-      group_name: Domain Admins
+      event_id: "4624"
+      is_admin_account: true
+    severity: medium
+    score: 30
+    attack:
+      tactic: Initial Access
+      technique: Valid Accounts
+    response_guide:
+      - 관리자 계정의 정상 로그인인지 확인
+      - 비정상 시간대 로그인 여부 확인
+      - 원격 로그인 여부 및 source_ip 확인
 
+  - rule_id: RULE-003
+    name: 관리자 계정 로그오프
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4634"
+      is_admin_account: true
+    severity: low
+    score: 15
+    attack:
+      tactic: None
+      technique: Logoff Event
+    response_guide:
+      - 관리자 세션 종료가 정상 행위인지 확인
+      - 비정상 시간대의 로그오프 여부 확인
+      - 직전 관리자 로그인 이벤트와 연관성 확인
+
+  - rule_id: RULE-004
+    name: 계정 생성
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4720"
+    severity: medium
+    score: 50
+    attack:
+      tactic: Persistence
+      technique: Create Account
+    response_guide:
+      - 신규 계정 생성이 정상 작업인지 확인
+      - 생성된 계정의 권한 확인
+      - 비인가 계정 생성 여부 점검
+
+  - rule_id: RULE-005
+    name: 비밀번호 변경
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4723"
+    severity: medium
+    score: 40
+    attack:
+      tactic: Credential Access
+      technique: Password Change
+    response_guide:
+      - 사용자 본인의 정상 비밀번호 변경인지 확인
+      - 비정상 시간대 변경 여부 확인
+      - 직전 로그인 및 계정 사용 이력 확인
+
+  - rule_id: RULE-006
+    name: 비밀번호 재설정
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4724"
     severity: high
-    score: 80
+    score: 60
+    attack:
+      tactic: Credential Access
+      technique: Account Manipulation
+    response_guide:
+      - 관리자에 의한 정상 재설정인지 확인
+      - 재설정 대상 계정 중요도 확인
+      - 비인가 비밀번호 재설정 여부 점검
 
+  - rule_id: RULE-007
+    name: 계정 비활성화
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4725"
+    severity: medium
+    score: 45
+    attack:
+      tactic: Defense Evasion
+      technique: Account Manipulation
+    response_guide:
+      - 계정 비활성화가 정상 관리 작업인지 확인
+      - 비활성화된 계정의 중요도 확인
+      - 직전 계정 변경 및 로그인 이력 확인
+
+  - rule_id: RULE-008
+    name: 계정 삭제
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4726"
+    severity: high
+    score: 70
+    attack:
+      tactic: Defense Evasion
+      technique: Account Manipulation
+    response_guide:
+      - 계정 삭제가 정상 관리 작업인지 확인
+      - 삭제된 계정의 중요도 확인
+      - 관리자 계정 또는 서비스 계정 삭제 여부 점검
+
+  - rule_id: RULE-009
+    name: Domain Admins 그룹 멤버 추가
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4728"
+      group_name: "Domain Admins"
+    severity: high
+    score: 75
     attack:
       tactic: Privilege Escalation
-      technique: T1098
-
+      technique: Account Manipulation
     response_guide:
-      - 그룹 변경 수행 계정 확인
-      - 변경 승인 여부 검토
+      - Domain Admins 그룹 변경이 정상 작업인지 확인
+      - 추가된 대상 계정의 중요도 확인
+      - 변경 수행 계정과 승인 이력 점검
+
+  - rule_id: RULE-010
+    name: Domain Admins 그룹 멤버 제거
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4729"
+      group_name: "Domain Admins"
+    severity: high
+    score: 70
+    attack:
+      tactic: Defense Evasion
+      technique: Account Manipulation
+    response_guide:
+      - Domain Admins 그룹에서 제거된 계정이 정상 변경 대상인지 확인
+      - 제거 수행 계정과 승인 이력 점검
+      - 직전 그룹 변경 및 관리자 활동 이력 확인
+
+  - rule_id: RULE-011
+    name: Administrators 로컬 그룹 멤버 추가
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4732"
+      group_name: "Administrators"
+    severity: high
+    score: 75
+    attack:
+      tactic: Privilege Escalation
+      technique: Account Manipulation
+    response_guide:
+      - Administrators 그룹 변경이 정상 작업인지 확인
+      - 추가된 대상 계정의 관리자 권한 필요성 확인
+      - 변경 수행 계정과 승인 이력 점검
+
+  - rule_id: RULE-012
+    name: Administrators 로컬 그룹 멤버 제거
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4733"
+      group_name: "Administrators"
+    severity: medium
+    score: 60
+    attack:
+      tactic: Defense Evasion
+      technique: Account Manipulation
+    response_guide:
+      - Administrators 그룹에서 제거된 계정이 정상 변경 대상인지 확인
+      - 제거 수행 계정과 승인 이력 점검
+      - 직전 관리자 그룹 변경 및 계정 활동 이력 확인
+
+  - rule_id: RULE-013
+    name: Enterprise Admins 그룹 멤버 추가
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4756"
+      group_name: "Enterprise Admins"
+    severity: high
+    score: 80
+    attack:
+      tactic: Privilege Escalation
+      technique: Account Manipulation
+    response_guide:
+      - Enterprise Admins 그룹 변경이 정상 작업인지 확인
+      - 추가된 대상 계정의 필요 권한 여부 확인
+      - 변경 수행 계정과 승인 이력 점검
+
+  - rule_id: RULE-014
+    name: Enterprise Admins 그룹 멤버 제거
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4757"
+      group_name: "Enterprise Admins"
+    severity: high
+    score: 75
+    attack:
+      tactic: Defense Evasion
+      technique: Account Manipulation
+    response_guide:
+      - Enterprise Admins 그룹에서 제거된 계정이 정상 변경 대상인지 확인
+      - 제거 수행 계정과 승인 이력 점검
+      - 직전 그룹 변경 및 관리자 활동 이력 확인

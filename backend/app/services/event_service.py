@@ -1,14 +1,57 @@
 import json
+from datetime import datetime, timedelta
 
 from app.db import get_conn
 from analysis.bundle_builder import build_event_bundle
+
+
+def get_recent_events_for_detection(conn, current_event_time: str):
+    if not current_event_time:
+        return []
+
+    try:
+        dt = datetime.fromisoformat(current_event_time.replace("Z", "+00:00"))
+    except Exception:
+        return []
+
+    window_start = (dt - timedelta(minutes=5)).isoformat()
+
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT event_json, normalized_json
+        FROM events
+        WHERE event_time >= ?
+        ORDER BY id DESC
+    """, (window_start,))
+
+    rows = cur.fetchall()
+
+    recent_events = []
+    for row in rows:
+        try:
+            event_part = json.loads(row["event_json"]) if row["event_json"] else {}
+        except Exception:
+            event_part = {}
+
+        try:
+            normalized_part = json.loads(row["normalized_json"]) if row["normalized_json"] else {}
+        except Exception:
+            normalized_part = {}
+
+        recent_events.append({
+            "event": event_part,
+            "normalized": normalized_part,
+        })
+
+    return recent_events
 
 
 def save_event(event):
     conn = get_conn()
     cur = conn.cursor()
 
-    bundle = build_event_bundle(event)
+    recent_events = get_recent_events_for_detection(conn, event.event_time)
+    bundle = build_event_bundle(event, recent_events=recent_events)
 
     cur.execute("""
         INSERT INTO events (

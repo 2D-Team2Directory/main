@@ -3,7 +3,6 @@ import json
 import requests
 import streamlit as st
 import pandas as pd
-from streamlit_option_menu import option_menu
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
 ATTACK_REQUESTED_BY = os.getenv("ATTACK_REQUESTED_BY", "")
@@ -92,8 +91,6 @@ def render_param_field(scenario_id: str, field: dict):
 st.set_page_config(page_title="AD Log Dashboard", layout="wide")
 st.title("AD 공격/방어 로그 대시보드")
 
-st.divider()
-
 if "last_run_id" not in st.session_state:
     st.session_state.last_run_id = None
 if "last_scenario_id" not in st.session_state:
@@ -103,53 +100,9 @@ if "last_target_ip" not in st.session_state:
 if "last_requested_by" not in st.session_state:
     st.session_state.last_requested_by = None
 
+tab_defense, tab_attack = st.tabs(["🛡️ 방어", "⚔️ 공격"])
 
-
-
-
-
-
-
-with st.sidebar:
-    menu = option_menu(
-        "메뉴",
-        ["방어", "공격"],
-        icons=["shield", "crosshair"],
-        menu_icon="grid",
-        default_index=0,
-        styles={
-            "container": {
-                "padding": "0.5rem 0.4rem",
-                "background-color": "transparent",
-            },
-            "icon": {
-                "color": "#111827",
-                "font-size": "18px",
-            },
-            "nav-link": {
-                "font-size": "16px",
-                "font-weight": "600",
-                "text-align": "left",
-                "margin": "0px",
-                "padding": "10px 12px",
-                "border-radius": "8px",
-                "--hover-color": "#f3f4f6",
-                "color": "#111827",
-            },
-            "nav-link-selected": {
-                "background-color": "#e5e7eb",
-                "color": "#111827",
-                "font-weight": "700",
-            },
-        },
-    )
-
-
-
-
-
-
-if menu == "방어":
+with tab_defense:
     col_title, col_refresh, col_rest = st.columns([2.5, 0.5, 7])
 
     with col_title:
@@ -173,89 +126,11 @@ if menu == "방어":
         df = pd.DataFrame(data)
         
         st.subheader("이벤트 요약")
-        sum_col1, sum_col2 = st.columns([3, 7])
-
-        with sum_col1:
-            st.metric("총 이벤트 개수", len(df))
-
-        with sum_col2:
-            if "event_id" in df.columns:
-                summary_df = (
-                    df["event_id"]
-                    .fillna("-")
-                    .astype(str)
-                    .value_counts()
-                    .head(10)
-                    .reset_index()
-                )
-                summary_df.columns = ["event_id", "count"]
-                st.dataframe(summary_df, use_container_width=True, hide_index=True)
-            else:
-                st.info("event_id 컬럼이 없습니다.")
+        if "event_id" in df.columns:
+            st.write(df["event_id"].value_counts().head(10))
 
 
         st.subheader("최근 이벤트")
-
-        filter_col1, filter_col2, filter_col3 = st.columns([3, 3, 4])
-
-        with filter_col1:
-            event_id_filter = st.text_input("이벤트 ID", value="", placeholder="예: 4625")
-
-        with filter_col2:
-            time_filter = st.selectbox(
-                "시간 필터",
-                ["전체", "최근 10분", "최근 1시간", "최근 24시간"],
-                index=0
-            )
-
-        with filter_col3:
-            date_filter = st.date_input("날짜 선택", value=None)
-
-        filtered_data = data
-
-        # 1) event_id 필터
-        if event_id_filter.strip():
-            keyword = event_id_filter.strip()
-            filtered_data = [
-                item for item in filtered_data
-                if str(item.get("event_id", "")).strip() == keyword
-            ]
-
-        # 2) 날짜 / 최근 n분 필터
-        def parse_event_time(value):
-            if not value:
-                return None
-            try:
-                return pd.to_datetime(value, utc=True)
-            except Exception:
-                return None
-
-        now_utc = pd.Timestamp.utcnow()
-
-        if time_filter != "전체":
-            if time_filter == "최근 10분":
-                cutoff = now_utc - pd.Timedelta(minutes=10)
-            elif time_filter == "최근 1시간":
-                cutoff = now_utc - pd.Timedelta(hours=1)
-            else:
-                cutoff = now_utc - pd.Timedelta(hours=24)
-
-            temp = []
-            for item in filtered_data:
-                dt = parse_event_time(item.get("event_time"))
-                if dt is not None and dt >= cutoff:
-                    temp.append(item)
-            filtered_data = temp
-
-        if date_filter:
-            temp = []
-            for item in filtered_data:
-                dt = parse_event_time(item.get("event_time"))
-                if dt is not None and dt.date() == date_filter:
-                    temp.append(item)
-            filtered_data = temp
-
-
 
         col_page_size, col_page = st.columns([5, 5])
         with col_page_size:
@@ -264,7 +139,7 @@ if menu == "방어":
             page = st.number_input("페이지", min_value=1, value=1, step=1)
 
 
-        total = len(filtered_data)
+        total = len(data)
         total_pages = max(1, (total + page_size - 1) // page_size)
 
         if page > total_pages:
@@ -272,7 +147,7 @@ if menu == "방어":
 
         start_idx = (page - 1) * page_size
         end_idx = start_idx + page_size
-        page_items = filtered_data[start_idx:end_idx]
+        page_items = data[start_idx:end_idx]
 
         st.caption(f"전체 {total}건 / {page}페이지 / 총 {total_pages}페이지")
 
@@ -326,9 +201,8 @@ if menu == "방어":
             severity = risk.get("severity", "none")
             final_score = risk.get("final_score", 0)
 
-            expander_title = f"🔎 ID {event_id}   |   {computer_name}   |   {event_time}"
-
-            with st.expander(expander_title, expanded=False):
+            with st.container(border=True):
+                # st.markdown(f"**[🔎 ID {event_id}]  {computer_name}  |  {event_time}**")
                 st.markdown(
                     f"""
                     <div style="
@@ -365,7 +239,7 @@ if menu == "방어":
                     </div>
                     """,
                     unsafe_allow_html=True
-                )
+)
 
                 row1 = st.columns(3)
                 row1[0].write(f"사용자: **{username}**")
@@ -386,12 +260,7 @@ if menu == "방어":
 
                 if message and message != "-":
                     preview_len = len(message)
-                    show_message = st.toggle(
-                        f"메시지 보기 ({preview_len}자)",
-                        key=f"msg_{item.get('id', event_id)}"
-                    )
-                    if show_message:
-                        st.markdown("**메시지**")
+                    with st.expander(f"메시지 보기 ({preview_len}자)", expanded=False):
                         st.write(message)
 
                 st.divider()
@@ -418,13 +287,7 @@ if menu == "방어":
                     for g in response_guide:
                         st.write(f"- {g}")
 
-                st.divider()
-                show_detail = st.toggle(
-                    "상세 JSON 보기",
-                    key=f"detail_{item.get('id', event_id)}"
-                )
-
-                if show_detail:
+                with st.expander("상세보기"):
                     st.markdown("**event_json**")
                     st.json(event_json)
 
@@ -445,7 +308,7 @@ if menu == "방어":
 
 # ------------------------------------------
 
-elif menu == "공격":
+with tab_attack:
     st.subheader("최근 실행 이력")
 
     st.button("실행 이력 새로고침", key="refresh_history")

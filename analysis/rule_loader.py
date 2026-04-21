@@ -1,31 +1,25 @@
-import os
-from typing import List, Dict, Any
-
+from typing import Any, Dict, List
 import yaml
 
 
-RULES_PATH = os.getenv(
-    "DETECTION_RULES_PATH",
-    os.path.join(os.path.dirname(__file__), "rules", "detection_rules.yaml"),
-)
-
-
-def load_rules() -> List[Dict[str, Any]]:
-    if not os.path.exists(RULES_PATH):
-        raise FileNotFoundError(f"Detection rules file not found: {RULES_PATH}")
-
-    with open(RULES_PATH, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+def load_rules(path: str = "analysis/rules/detection_rules.yaml") -> List[Dict[str, Any]]:
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
 
     rules = data.get("rules", [])
-    if not isinstance(rules, list):
-        raise ValueError("Invalid rules format: 'rules' must be a list")
-
-    enabled_rules = []
-    for rule in rules:
-        if not isinstance(rule, dict):
-            continue
-        if rule.get("enabled", True):
-            enabled_rules.append(rule)
-
+    enabled_rules = [rule for rule in rules if rule.get("enabled", True)]
     return enabled_rules
+
+
+def split_rules_by_type(rules: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    result = {
+        "single_event": [],
+        "aggregation": [],
+    }
+
+    for rule in rules:
+        rule_type = rule.get("type")
+        if rule_type in result:
+            result[rule_type].append(rule)
+
+    return result

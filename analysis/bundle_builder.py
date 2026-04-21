@@ -1,10 +1,26 @@
 import json
 
 from analysis.event_normalizer import normalize_event
-from analysis.detection_engine import evaluate_detection
+from analysis.detection_engine import evaluate_event
+from analysis.risk_engine import calculate_risk
 
 
-def build_event_bundle(event):
+def build_default_detection() -> dict:
+    return {
+        "detected": False,
+        "rule_id": None,
+        "rule_name": None,
+        "reason": [],
+        "attack_tactic": None,
+        "attack_technique": None,
+        "response_guide": [],
+    }
+
+
+def build_event_bundle(event, recent_events=None):
+    if recent_events is None:
+        recent_events = []
+
     event_dict = {
         "event_time": event.event_time,
         "event_id": str(event.event_id) if event.event_id is not None else None,
@@ -23,16 +39,26 @@ def build_event_bundle(event):
     }
 
     normalized = normalize_event(event)
-    detection, risk = evaluate_detection(event_dict, normalized)
 
-    detection.setdefault("reason", [])
-    detection.setdefault("response_guide", [])
-    detection.setdefault("detected", False)
+    detection_result = evaluate_event(
+        event_dict=event_dict,
+        normalized=normalized,
+        recent_events=recent_events,
+    )
 
-    risk.setdefault("base_score", 0)
-    risk.setdefault("weight", 0)
-    risk.setdefault("final_score", 0)
-    risk.setdefault("severity", "none")
+    detection = build_default_detection()
+    if detection_result:
+        detection.update({
+            "detected": detection_result.get("detected", False),
+            "rule_id": detection_result.get("rule_id"),
+            "rule_name": detection_result.get("rule_name"),
+            "reason": detection_result.get("reason", []),
+            "attack_tactic": detection_result.get("attack_tactic"),
+            "attack_technique": detection_result.get("attack_technique"),
+            "response_guide": detection_result.get("response_guide", []),
+        })
+
+    risk = calculate_risk(event, normalized, detection)
 
     try:
         original_event = json.loads(event.raw_json) if event.raw_json else {}
