@@ -245,3 +245,67 @@ rules:
       - Enterprise Admins 그룹에서 제거된 계정이 정상 변경 대상인지 확인
       - 제거 수행 계정과 승인 이력 점검
       - 직전 그룹 변경 및 관리자 활동 이력 확인
+
+      # [프로세스 생성 및 실행 관련]
+  - rule_id: RULE-041
+    name: 프로세스 생성 (Sysmon/Event 4688)
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4688"
+    severity: low
+    score: 10
+    attack:
+      tactic: Execution
+      technique: T1059
+    response_guide:
+      - 실행된 프로세스의 경로 및 인자 확인
+      - 부모 프로세스와의 관계 확인
+
+  - rule_id: RULE-042
+    name: PowerShell 실행 탐지
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4688"
+      service_name: "powershell.exe" # 또는 process_name 필드가 있다면 활용
+    severity: medium
+    score: 40
+    attack:
+      tactic: Execution
+      technique: T1059.001
+    response_guide:
+      - 실행된 스크립트 내용 및 인자 확인
+      - 비정상적인 네트워크 연결 시도 여부 점검
+
+  # [원격 접속 및 네트워크 관련]
+  - rule_id: RULE-061
+    name: 원격 접속 흔적 (로그인 타입 10)
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4624"
+      logon_type: "10" # RemoteInteractive (RDP)
+    severity: low
+    score: 20
+    attack:
+      tactic: Lateral Movement
+      technique: T1021.001
+    response_guide:
+      - 소스 IP가 인가된 관리자 IP인지 확인
+      - 접속 시간대의 적절성 판단
+
+  - rule_id: RULE-062
+    name: Kerberos 인증 서비스 요청 (AS-REQ)
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4768"
+    severity: low
+    score: 15
+    attack:
+      tactic: Credential Access
+      technique: T1558
+    response_guide:
+      - 과도한 인증 요청 발생 여부 확인
+      - 암호화 수준(Encryption Type) 확인
