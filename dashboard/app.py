@@ -106,10 +106,6 @@ if "last_requested_by" not in st.session_state:
 
 
 
-
-
-
-
 with st.sidebar:
     menu = option_menu(
         "메뉴",
@@ -326,7 +322,7 @@ if menu == "방어":
             severity = risk.get("severity", "none")
             final_score = risk.get("final_score", 0)
 
-            expander_title = f"🔎 ID {event_id}   |   {computer_name}   |   {event_time}"
+            expander_title = f"🔎 ID {event_id}   |   {computer_name}   |   {rule_name}   |   {event_time}"
 
             with st.expander(expander_title, expanded=False):
                 st.markdown(
