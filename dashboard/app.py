@@ -86,7 +86,14 @@ def render_param_field(scenario_id: str, field: dict):
     return field_name, value
 
 
-
+def fetch_scenario_log(run_id: str, tail: int = 200):
+    try:
+        res = requests.get(f"{BACKEND_URL}/scenario/log/{run_id}", params={"tail": tail}, timeout=10)
+        res.raise_for_status()
+        return res.json()
+    except Exception as e:
+        return {"result": "error", "message": str(e)}
+    
 
 
 st.set_page_config(page_title="AD Log Dashboard", layout="wide")
@@ -102,7 +109,6 @@ if "last_target_ip" not in st.session_state:
     st.session_state.last_target_ip = None
 if "last_requested_by" not in st.session_state:
     st.session_state.last_requested_by = None
-
 
 
 
@@ -189,8 +195,21 @@ if menu == "방어":
             else:
                 st.info("event_id 컬럼이 없습니다.")
 
+        col_subtitle, col_delete = st.columns([7, 3])
 
-        st.subheader("최근 이벤트")
+        with col_subtitle:
+            st.subheader("최근 이벤트")
+
+        with col_delete:
+            if st.button("전체 삭제", type="secondary"):
+                try:
+                    delete_res = requests.delete(f"{BACKEND_URL}/events", timeout=10)
+                    delete_res.raise_for_status()
+                    result = delete_res.json()
+                    st.success(f"전체 삭제 완료 ({result.get('deleted_count', 0)}건)")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"전체 삭제 실패: {e}")
 
         filter_col1, filter_col2, filter_col3 = st.columns([3, 3, 4])
 
@@ -298,6 +317,7 @@ if menu == "방어":
             except Exception:
                 raw_json = item.get("raw_json")
 
+            event_row_id = item.get("id")
             event_time = item.get("event_time", "-")
             event_id = item.get("event_id", "-")
             computer_name = item.get("computer_name", "-")
@@ -325,43 +345,57 @@ if menu == "방어":
             expander_title = f"🔎 ID {event_id}   |   {computer_name}   |   {rule_name}   |   {event_time}"
 
             with st.expander(expander_title, expanded=False):
-                st.markdown(
-                    f"""
-                    <div style="
-                        font-size: 1.15rem;
-                        font-weight: 600;
-                        margin-bottom: 0.6rem;
-                        display: flex;
-                        align-items: center;
-                        gap: 10px;
-                        flex-wrap: wrap;
-                    ">
-                        <span style="
-                            background-color: #eef2ff;
-                            color: #3730a3;
-                            padding: 4px 10px;
-                            border-radius: 999px;
-                            font-size: 1rem;
-                            font-weight: 700;
+                top_left, top_right = st.columns([9, 1])
+
+                with top_left:
+                    st.markdown(
+                        f"""
+                        <div style="
+                            font-size: 1.15rem;
+                            font-weight: 600;
+                            margin-bottom: 0.6rem;
+                            display: flex;
+                            align-items: center;
+                            gap: 10px;
+                            flex-wrap: wrap;
                         ">
-                            🔎 ID {event_id} 
-                        </span>
-                        <span style="
-                            background-color: #FAF4C0;
-                            color: #425518;
-                            padding: 4px 10px;
-                            border-radius: 999px;
-                            font-size: 1rem;
-                            font-weight: 700;
-                        ">
-                            {computer_name}
-                        </span>
-                        <span style="color: #9ca3af;">|</span>
-                        <span style="color: #6b7280; font-weight: 500;">{event_time}</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                            <span style="
+                                background-color: #eef2ff;
+                                color: #3730a3;
+                                padding: 4px 10px;
+                                border-radius: 999px;
+                                font-size: 1rem;
+                                font-weight: 700;
+                            ">
+                                🔎 ID {event_id} 
+                            </span>
+                            <span style="
+                                background-color: #FAF4C0;
+                                color: #425518;
+                                padding: 4px 10px;
+                                border-radius: 999px;
+                                font-size: 1rem;
+                                font-weight: 700;
+                            ">
+                                {computer_name}
+                            </span>
+                            <span style="color: #9ca3af;">|</span>
+                            <span style="color: #6b7280; font-weight: 500;">{event_time}</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                with top_right:
+                    if event_row_id is not None and st.button("삭제", key=f"delete_event_{event_row_id}"):
+                        try:
+                            delete_res = requests.delete(f"{BACKEND_URL}/events/{event_row_id}", timeout=10)
+                            delete_res.raise_for_status()
+                            st.success(f"이벤트 {event_row_id} 삭제 완료")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"이벤트 삭제 실패: {e}")
+
 
                 row1 = st.columns(3)
                 row1[0].write(f"사용자: **{username}**")
@@ -465,7 +499,7 @@ elif menu == "공격":
                 raw_status = item.get("status", "-")
 
                 if raw_status == "running":
-                    display_status = "🟢 running"
+                    display_status = "🔵 running"
                 elif raw_status == "success":
                     display_status = "✅ success"
                 elif raw_status == "failed":
@@ -476,6 +510,7 @@ elif menu == "공격":
                 history_rows.append({
                     "run_id": item.get("run_id", "-"),
                     "실행자": item.get("requested_by", "-"),
+                    "타입": item.get("scenario_type", "general"),
                     "시나리오": item.get("scenario_id", "-"),
                     "타겟 IP": item.get("target_ip", "-"),
                     "상태": display_status,
@@ -483,6 +518,7 @@ elif menu == "공격":
                 })
 
             history_df = pd.DataFrame(history_rows)
+
             def highlight_status(val):
                 if "running" in str(val):
                     return "background-color: #FFC19E; color: #6F310E; font-weight: bold;"
@@ -498,6 +534,56 @@ elif menu == "공격":
             )
 
             st.dataframe(styled_df, use_container_width=True)
+
+            st.markdown("### 실행 로그 확인")
+            run_options = [row["run_id"] for row in history_rows if row.get("run_id") not in (None, "-")]
+
+
+            col_run_log, col_log_lines, col_load_log, col_load_refresh = st.columns([3.5, 3.5, 1.5, 1.5])
+
+            with col_run_log:
+                selected_run_id = st.selectbox(
+                    "로그를 볼 실행 선택",
+                    options=run_options,
+                    key="selected_run_id"
+                )
+
+            with col_log_lines:
+                tail = st.selectbox(
+                    "불러올 로그 줄 수",
+                    [50, 100, 200, 500],
+                    index=2,
+                    key="selected_log_tail"
+                )
+
+            with col_load_log:
+                if st.button("로그 불러오기", key="load_selected_log"):
+                    log_data = fetch_scenario_log(selected_run_id, tail=tail)
+                    st.session_state["selected_run_log"] = log_data
+
+            with col_load_refresh:
+                if st.button("새로고침", key="refresh_selected_log"):
+                    log_data = fetch_scenario_log(selected_run_id, tail=tail)
+                    st.session_state["selected_run_log"] = log_data
+
+
+            cached_log = st.session_state.get("selected_run_log")
+
+            if cached_log:
+                if cached_log.get("result") == "error":
+                    st.error(cached_log.get("message", "로그 조회 실패"))
+                else:
+                    st.caption(
+                        f"log_path: {cached_log.get('log_path', '-')} | "
+                        f"encoding: {cached_log.get('encoding', '-')} | "
+                        f"tail: {cached_log.get('tail', '-')}"
+                    )
+                    st.code(cached_log.get("log_text", ""), language="bash")
+            else:
+                st.info("실행 이력을 선택하고 로그를 불러오세요.")
+
+
+
 
     st.divider()
     st.subheader("공격 시나리오 실행")
@@ -521,6 +607,13 @@ elif menu == "공격":
     if isinstance(scenarios, dict) and scenarios.get("result") == "error":
         st.error(scenarios.get("message"))
     else:
+        grouped = {
+            "real_attack": [],
+            "detection_test": [],
+            "general": [],
+        }
+
+
         for scenario in scenarios:
             scenario_id = scenario["scenario_id"]
             params_schema = scenario.get("params_schema") or []
@@ -529,11 +622,64 @@ elif menu == "공격":
                 c1, c2 = st.columns([8, 2])
 
                 with c1:
-                    st.markdown(f"**{scenario['label']}**")
+                    scenario_type = scenario.get("scenario_type", "general")
+
+                    type_style_map = {
+                        "real_attack": {
+                            "bg": "#fee2e2",
+                            "fg": "#991b1b",
+                            "label": "real_attack",
+                        },
+                        "detection_test": {
+                            "bg": "#fef3c7",
+                            "fg": "#92400e",
+                            "label": "detection_test",
+                        },
+                        "general": {
+                            "bg": "#e0f2fe",
+                            "fg": "#075985",
+                            "label": "general",
+                        },
+                    }
+
+                    style_info = type_style_map.get(
+                        scenario_type,
+                        {
+                            "bg": "#eef2ff",
+                            "fg": "#3730a3",
+                            "label": scenario_type,
+                        }
+                    )
+
+                    st.markdown(
+                        f"""
+                        <div style="
+                            font-size: 1.15rem;
+                            font-weight: 600;
+                            margin-bottom: 0.6rem;
+                            display: flex;
+                            align-items: center;
+                            gap: 10px;
+                            flex-wrap: wrap;
+                        ">
+                            <span style="
+                                background-color: {style_info['bg']};
+                                color: {style_info['fg']};
+                                padding: 4px 10px;
+                                border-radius: 999px;
+                                font-size: 1rem;
+                                font-weight: 700;
+                            ">
+                                {style_info['label']}
+                            </span>
+                            <span>{scenario['label']}</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
 
                 extra_params = {}
 
-                # params_schema가 있을 때만 확장 입력 폼 표시
                 if params_schema:
                     with st.expander("파라미터 설정", expanded=False):
                         st.caption("이 시나리오는 추가 파라미터 입력을 지원합니다.")
@@ -560,7 +706,6 @@ elif menu == "공격":
                         elif not requested_by.strip():
                             st.warning("실행자를 입력하세요.")
                         else:
-                            # required 검사
                             missing_fields = []
                             for field in params_schema:
                                 if not field.get("required", False):
@@ -582,7 +727,6 @@ elif menu == "공격":
                                     "requested_by": requested_by.strip(),
                                 }
 
-                                # 빈 문자열은 제외하고 추가
                                 for k, v in extra_params.items():
                                     if isinstance(v, str):
                                         if v.strip():
