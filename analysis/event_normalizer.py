@@ -12,6 +12,14 @@ def get_event_type(event_id: Optional[str]) -> str:
     eid = _to_str(event_id)
 
     mapping = {
+        "1": "process_create",
+        "3": "network_connection",
+        "7": "image_loaded",
+        "11": "file_create",
+        "12": "registry_object_change",
+        "13": "registry_value_set",
+        "14": "registry_value_rename",
+        "22": "dns_query",
         "4624": "login_success",
         "4625": "login_failure",
         "4634": "logoff",
@@ -31,6 +39,7 @@ def get_event_type(event_id: Optional[str]) -> str:
         "4769": "kerberos_request",
         "4771": "kerberos_failure",
         "4648": "explicit_credentials_logon",
+        "4670": "permission_change",
         "4688": "process_create",
     }
 

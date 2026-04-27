@@ -78,3 +78,5 @@ if __name__ == "__main__":
     run_case("일반 유니버설 그룹 멤버 추가", "4756", "administrator", "user1", "Domain Users")
     run_case("Enterprise Admins 그룹 멤버 제거", "4757", "administrator", "user1", "Enterprise Admins")
     run_case("일반 유니버설 그룹 멤버 제거", "4757", "administrator", "user1", "Domain Users")
+    run_case("관리자 계정 권한 변경", "4670", "administrator", "administrator")
+    run_case("일반 사용자 권한 변경", "4670", "user1", "user1")

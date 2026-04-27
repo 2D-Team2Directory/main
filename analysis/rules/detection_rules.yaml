@@ -7,7 +7,7 @@ rules:
     match:
       event_type: login_failure
 
-    group_by: [targer_user]
+    group_by: [target_user]
     window:
       minutes: 5
     threshold:
@@ -245,3 +245,339 @@ rules:
       - Enterprise Admins 그룹에서 제거된 계정이 정상 변경 대상인지 확인
       - 제거 수행 계정과 승인 이력 점검
       - 직전 그룹 변경 및 관리자 활동 이력 확인
+
+  - rule_id: RULE-015
+    name: 관리자 계정 권한 변경
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4670"
+      is_admin_account: true
+    severity: high
+    score: 70
+    attack:
+      tactic: Privilege Escalation
+      technique: File and Directory Permissions Modification
+    response_guide:
+      - 권한 변경이 정상 관리자 작업인지 확인
+      - 변경 대상 객체와 범위를 점검
+      - 비정상 시간대 및 직전 관리자 행위와 연관성 확인
+
+  - rule_id: RULE-016
+    name: 의심 LOLBin 명령 실행
+    enabled: true
+    type: single_event
+    match:
+      event_id: "1"
+    match_any:
+      image:
+        - powershell.exe
+        - cmd.exe
+        - wscript.exe
+        - cscript.exe
+        - mshta.exe
+        - rundll32.exe
+        - regsvr32.exe
+        - certutil.exe
+    contains_any:
+      command_line:
+        - "-enc"
+        - "-encodedcommand"
+        - "downloadstring"
+        - "iex"
+        - "http"
+        - "hidden"
+        - "bypass"
+    severity: high
+    score: 80
+    attack:
+      tactic: Execution
+      technique: Command and Scripting Interpreter
+    response_guide:
+      - 실행된 프로세스와 명령줄 인자를 확인
+      - 부모 프로세스와 직전 행위를 점검
+      - 외부 통신, DNS 질의, 파일 생성과 연관 분석
+
+  - rule_id: RULE-017
+    name: 의심 LOLBin 외부 네트워크 연결
+    enabled: true
+    type: single_event
+    match:
+      event_id: "3"
+    match_any:
+      image:
+        - powershell.exe
+        - cmd.exe
+        - wscript.exe
+        - cscript.exe
+        - mshta.exe
+        - rundll32.exe
+        - regsvr32.exe
+        - certutil.exe
+      destination_port:
+        - "80"
+        - "443"
+        - "8080"
+        - "8443"
+    severity: high
+    score: 75
+    attack:
+      tactic: Command and Control
+      technique: Application Layer Protocol
+    response_guide:
+      - 연결을 시도한 프로세스와 대상 IP/포트를 확인
+      - 직전 Process Create 및 DNS Query와 연관 분석
+      - 외부 통신 필요성이 있는 정상 행위인지 검토
+
+  - rule_id: RULE-018
+    name: 의심 LOLBin 비정상 DLL 로드
+    enabled: true
+    type: single_event
+    match:
+      event_id: "7"
+    match_any:
+      image:
+        - powershell.exe
+        - wscript.exe
+        - cscript.exe
+        - mshta.exe
+        - rundll32.exe
+        - regsvr32.exe
+    contains_any:
+      image_loaded:
+        - "\\appdata\\"
+        - "\\temp\\"
+        - "\\public\\"
+        - "\\downloads\\"
+    severity: high
+    score: 80
+    attack:
+      tactic: Defense Evasion
+      technique: Hijack Execution Flow
+    response_guide:
+      - DLL을 로드한 프로세스와 DLL 경로를 확인
+      - 사용자 경로/임시 경로에서 로드된 이유를 점검
+      - 서명 상태와 직전 Process Create 행위를 연관 분석
+
+  - rule_id: RULE-019
+    name: 의심 LOLBin 비정상 파일 생성
+    enabled: true
+    type: single_event
+    match:
+      event_id: "11"
+    match_any:
+      image:
+        - powershell.exe
+        - cmd.exe
+        - wscript.exe
+        - cscript.exe
+        - mshta.exe
+        - rundll32.exe
+        - regsvr32.exe
+        - certutil.exe
+    contains_any:
+      target_filename:
+        - "\\appdata\\"
+        - "\\temp\\"
+        - "\\public\\"
+        - "\\startup\\"
+        - "\\downloads\\"
+    severity: high
+    score: 75
+    attack:
+      tactic: Defense Evasion
+      technique: Masquerading
+    response_guide:
+      - 생성한 프로세스와 파일 경로를 확인
+      - 파일 확장자와 저장 위치의 정상 여부를 점검
+      - 직전 Process Create, DNS, Network Connection과 연관 분석
+
+  - rule_id: RULE-020
+    name: 의심 프로세스 Run 키 생성삭제
+    enabled: true
+    type: single_event
+    match:
+      event_id: "12"
+    match_any:
+      image:
+        - powershell.exe
+        - cmd.exe
+        - wscript.exe
+        - cscript.exe
+        - mshta.exe
+        - rundll32.exe
+        - regsvr32.exe
+        - certutil.exe
+    contains_any:
+      target_object:
+        - "\\software\\microsoft\\windows\\currentversion\\run"
+        - "\\software\\microsoft\\windows\\currentversion\\runonce"
+    severity: high
+    score: 80
+    attack:
+      tactic: Persistence
+      technique: Registry Run Keys / Startup Folder
+    response_guide:
+      - 변경한 프로세스와 레지스트리 경로를 확인
+      - Run/RunOnce 키 변경이 정상 작업인지 점검
+      - 직전 Process Create, File Create와 연관 분석
+
+  - rule_id: RULE-021
+    name: 의심 프로세스 Run 값 설정
+    enabled: true
+    type: single_event
+    match:
+      event_id: "13"
+    match_any:
+      image:
+        - powershell.exe
+        - cmd.exe
+        - wscript.exe
+        - cscript.exe
+        - mshta.exe
+        - rundll32.exe
+        - regsvr32.exe
+        - certutil.exe
+    contains_any:
+      target_object:
+        - "\\software\\microsoft\\windows\\currentversion\\run"
+        - "\\software\\microsoft\\windows\\currentversion\\runonce"
+    severity: high
+    score: 85
+    attack:
+      tactic: Persistence
+      technique: Registry Run Keys / Startup Folder
+    response_guide:
+      - 변경한 프로세스와 레지스트리 값 경로를 확인
+      - 설정된 값 데이터(details)가 정상 프로그램 경로인지 점검
+      - 직전 Process Create, File Create와 연관 분석
+
+  - rule_id: RULE-022
+    name: 의심 프로세스 Run 값 이름 변경
+    enabled: true
+    type: single_event
+    match:
+      event_id: "14"
+    match_any:
+      image:
+        - powershell.exe
+        - cmd.exe
+        - wscript.exe
+        - cscript.exe
+        - mshta.exe
+        - rundll32.exe
+        - regsvr32.exe
+        - certutil.exe
+    contains_any:
+      target_object:
+        - "\\software\\microsoft\\windows\\currentversion\\run"
+        - "\\software\\microsoft\\windows\\currentversion\\runonce"
+    severity: high
+    score: 80
+    attack:
+      tactic: Persistence
+      technique: Registry Run Keys / Startup Folder
+    response_guide:
+      - 변경한 프로세스와 레지스트리 값 경로를 확인
+      - 변경 전후 값 이름이 정상 프로그램 식별자인지 점검
+      - 직전 Registry Value Set 및 Process Create와 연관 분석
+
+  - rule_id: RULE-023
+    name: 의심 프로세스 DNS
+    enabled: true
+    type: single_event
+    match:
+      event_id: "22"
+    match_any:
+      image:
+        - powershell.exe
+        - cmd.exe
+        - wscript.exe
+        - cscript.exe
+        - mshta.exe
+        - rundll32.exe
+        - regsvr32.exe
+        - certutil.exe
+    contains_any:
+      query_name:
+        - ".top"
+        - ".xyz"
+        - ".shop"
+        - ".monster"
+        - "pastebin"
+        - "github"
+        - "raw.githubusercontent"
+        - "ngrok"
+    severity: high
+    score: 75
+    attack:
+      tactic: Command and Control
+      technique: DNS
+    response_guide:
+      - DNS 질의를 수행한 프로세스와 도메인을 확인
+      - 정상 업무에서 필요한 도메인인지 검토
+      - 직전 Process Create, Network Connection과 연관 분석
+
+      # [프로세스 생성 및 실행 관련]
+  - rule_id: RULE-041
+    name: 프로세스 생성 (Sysmon/Event 4688)
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4688"
+    severity: low
+    score: 10
+    attack:
+      tactic: Execution
+      technique: T1059
+    response_guide:
+      - 실행된 프로세스의 경로 및 인자 확인
+      - 부모 프로세스와의 관계 확인
+
+  - rule_id: RULE-042
+    name: PowerShell 실행 탐지
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4688"
+      service_name: "powershell.exe" # 또는 process_name 필드가 있다면 활용
+    severity: medium
+    score: 40
+    attack:
+      tactic: Execution
+      technique: T1059.001
+    response_guide:
+      - 실행된 스크립트 내용 및 인자 확인
+      - 비정상적인 네트워크 연결 시도 여부 점검
+
+  # [원격 접속 및 네트워크 관련]
+  - rule_id: RULE-061
+    name: 원격 접속 흔적 (로그인 타입 10)
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4624"
+      logon_type: "10" # RemoteInteractive (RDP)
+    severity: low
+    score: 20
+    attack:
+      tactic: Lateral Movement
+      technique: T1021.001
+    response_guide:
+      - 소스 IP가 인가된 관리자 IP인지 확인
+      - 접속 시간대의 적절성 판단
+
+  - rule_id: RULE-062
+    name: Kerberos 인증 서비스 요청 (AS-REQ)
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4768"
+    severity: low
+    score: 15
+    attack:
+      tactic: Credential Access
+      technique: T1558
+    response_guide:
+      - 과도한 인증 요청 발생 여부 확인
+      - 암호화 수준(Encryption Type) 확인

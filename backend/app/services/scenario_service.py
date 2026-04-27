@@ -6,6 +6,10 @@ ATTACK_RUNNER_URL = os.getenv("ATTACK_RUNNER_URL", "")
 ATTACK_RUNNER_TOKEN = os.getenv("ATTACK_RUNNER_TOKEN", "")
 
 
+def _auth_headers():
+    return {"X-API-Token": ATTACK_RUNNER_TOKEN}
+
+
 def run_scenario(req):
     if not ATTACK_RUNNER_URL:
         return {"result": "error", "message": "ATTACK_RUNNER_URL is not configured"}
@@ -63,6 +67,25 @@ def get_scenario_status(run_id: str):
         return res.json()
     except requests.RequestException as e:
         return {"result": "error", "message": f"Failed to get scenario status: {e}"}
+
+
+def get_scenario_log(run_id: str, tail: int = 200):
+    if not ATTACK_RUNNER_URL:
+        return {"result": "error", "message": "ATTACK_RUNNER_URL is not configured"}
+
+    try:
+        res = requests.get(
+            f"{ATTACK_RUNNER_URL}/logs/{run_id}",
+            headers=_auth_headers(),
+            params={"tail": tail},
+            timeout=10
+        )
+        res.raise_for_status()
+        return res.json()
+    except requests.RequestException as e:
+        return {"result": "error", "message": f"Failed to get scenario log: {e}"}
+
+
 
 
 def list_scenarios():

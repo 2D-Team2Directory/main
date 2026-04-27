@@ -93,3 +93,32 @@ def list_events(limit: int = 50):
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows
+
+
+def delete_all_events():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM events")
+    deleted_count = cur.rowcount if cur.rowcount is not None else 0
+    conn.commit()
+    conn.close()
+    return {"result": "deleted", "deleted_count": deleted_count}
+
+
+
+def delete_event_by_id(event_row_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM events WHERE id = ?", (event_row_id,))
+    deleted_count = cur.rowcount if cur.rowcount is not None else 0
+    conn.commit()
+    conn.close()
+
+    if deleted_count == 0:
+        return {"result": "not_found", "event_row_id": event_row_id}
+
+    return {
+        "result": "deleted",
+        "event_row_id": event_row_id,
+        "deleted_count": deleted_count,
+    }
