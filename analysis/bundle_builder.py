@@ -14,7 +14,7 @@ def build_default_detection() -> dict:
         "attack_tactic": None,
         "attack_technique": None,
         "response_guide": [],
-        "all_rules": [] # 어떤 룰들에 걸렸는지 전체 ID 저장용 (선택사항)
+        "all_rules": [] 
     }
 
 def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -36,23 +36,26 @@ def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]]
         "logon_type": str(event.logon_type) if event.logon_type is not None else None,
         "service_name": event.service_name,
         "message": event.message,
+        # AS-REP Roasting 탐지를 위한 필드 (정규화 단계에서 추출됨)
+        "pre_auth_type": getattr(event, 'pre_auth_type', None),
+        "ticket_encryption_type": getattr(event, 'ticket_encryption_type', None),
     }
 
     normalized = normalize_event(event)
 
-    # 3. 탐지 엔진 실행 (리스트 결과 수신)
+    # 3. 탐지 엔진 실행 (이제 모든 탐지 결과를 리스트로 수신)
     detection_results = evaluate_event(
         event_dict=event_dict,
         normalized=normalized,
         recent_events=recent_events,
     )
 
-    # 4. 탐지 결과 구조화 및 통합
+    # 4. 탐지 결과 구조화 및 다중 결과 통합
     detection = build_default_detection()
     if detection_results:
         detection["detected"] = True
         
-        # 가독성을 위해 가장 위험도가 높거나 첫 번째인 룰 정보를 대표로 설정
+        # 가독성을 위해 첫 번째 탐지 결과를 대표 정보로 설정
         primary = detection_results[0]
         detection["rule_id"] = primary.get("rule_id")
         detection["rule_name"] = primary.get("rule_name")
@@ -60,15 +63,18 @@ def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]]
         detection["attack_technique"] = primary.get("attack_technique")
 
         for res in detection_results:
-            # 사유와 대응 가이드를 리스트로 합침
-            if res.get("reason"):
-                detection["reason"].extend(res.get("reason") if isinstance(res.get("reason"), list) else [res.get("reason")])
-            if res.get("response_guide"):
-                detection["response_guide"].extend(res.get("response_guide"))
-            # 걸린 모든 룰 ID 기록
+            # 사유(reason) 통합
+            r = res.get("reason", [])
+            detection["reason"].extend(r if isinstance(r, list) else [r])
+            
+            # 대응 가이드(response_guide) 통합
+            g = res.get("response_guide", [])
+            detection["response_guide"].extend(g if isinstance(g, list) else [g])
+            
+            # 탐지된 모든 룰 ID 기록
             detection["all_rules"].append(res.get("rule_id"))
 
-        # 중복 제거
+        # 중복 제거 (set 활용)
         detection["reason"] = list(set(detection["reason"]))
         detection["response_guide"] = list(set(detection["response_guide"]))
 
