@@ -69,6 +69,35 @@ def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]]
         # AS-REP Roasting 탐지를 위한 필드 (정규화 단계에서 추출됨)
         "pre_auth_type": getattr(event, 'pre_auth_type', None),
         "ticket_encryption_type": getattr(event, 'ticket_encryption_type', None),
+
+        # Sysmon 확장 필드
+        "image": getattr(event, "image", None),
+        "command_line": getattr(event, "command_line", None),
+        "parent_image": getattr(event, "parent_image", None),
+        "parent_command_line": getattr(event, "parent_command_line", None),
+        "current_directory": getattr(event, "current_directory", None),
+        "user": getattr(event, "user", None),
+
+        "destination_ip": getattr(event, "destination_ip", None),
+        "destination_port": getattr(event, "destination_port", None),
+        "source_port": getattr(event, "source_port", None),
+        "protocol": getattr(event, "protocol", None),
+
+        "image_loaded": getattr(event, "image_loaded", None),
+        "signed": getattr(event, "signed", None),
+        "signature_status": getattr(event, "signature_status", None),
+        "hashes": getattr(event, "hashes", None),
+
+        "target_filename": getattr(event, "target_filename", None),
+        "creation_utc_time": getattr(event, "creation_utc_time", None),
+
+        "target_object": getattr(event, "target_object", None),
+        "registry_event_type": getattr(event, "registry_event_type", None),
+        "details": getattr(event, "details", None),
+
+        "query_name": getattr(event, "query_name", None),
+        "query_status": getattr(event, "query_status", None),
+        "query_results": getattr(event, "query_results", None),
     }
 
     normalized = normalize_event(event)
