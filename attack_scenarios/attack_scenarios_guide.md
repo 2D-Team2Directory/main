@@ -186,6 +186,10 @@ C:\Tools\PowerView\
   └─ pv_recon.ps1
 ```
 
+두 파일 다 `attack_scenarios/PowerView` 경로에 올라가 있는데
+`pv_recon.ps1.txt` 파일은 그대로 복사해서 .txt 만 지우고 사용하면 되고
+`PowerView.ps1`.txt` 파일은 안에 있는 링크 들어가서 내용 그대로 복사해서 사용하면 됩니다
+
 * 파워쉘에서 PowerView 경로 Defender 예외 등록 : 안하면 자꾸 파일 지워짐,, 
 ```
 Add-MpPreference -ExclusionPath "C:\Tools\PowerView"
