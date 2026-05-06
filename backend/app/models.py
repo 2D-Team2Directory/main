@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, List, Dict, Any
 
 
 class EventIn(BaseModel):
@@ -19,7 +19,7 @@ class EventIn(BaseModel):
     message: Optional[str] = None
     raw_json: Optional[str] = None
 
-    # Sysmon 확장 필드
+        # Sysmon 확장 필드
     image: Optional[str] = None
     command_line: Optional[str] = None
     parent_image: Optional[str] = None
