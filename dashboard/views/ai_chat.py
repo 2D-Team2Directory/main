@@ -278,6 +278,9 @@ def render_ai_chat():
         if st.button("🗑 대화 초기화", key="ai_clear_chat"):
             st.session_state.ai_chat_history = []
             st.session_state.ai_api_messages = []
+            st.session_state.ai_processing = False
+            st.session_state.ai_pending_input = ""
+            st.session_state.pop("ai_pending_prompt", None)
             st.rerun()
 
     with left:
@@ -337,7 +340,10 @@ def render_ai_chat():
                             st.session_state["ai_pending_prompt"] = prompt
 
         # 4. 채팅 입력 (항상 최하단)
-        user_input = st.chat_input("질문을 입력하세요. 예: 최근 보안 로그 20건 보여줘")
+        user_input = st.chat_input(
+            "질문을 입력하세요. 예: 최근 보안 로그 20건 보여줘",
+            key="ai_chat_user_input",
+        )
 
         pending = st.session_state.pop("ai_pending_prompt", None)
         if pending and not user_input:
