@@ -695,7 +695,7 @@ def _render_powerview_compare():
 # ----------------------------------
 
 def render_recon():
-    st.title("정찰")
+    st.title("🔍 정찰")
     st.caption("PowerView, PingCastle, BloodHound 등 AD 정찰 결과를 확인합니다.")
 
 
@@ -705,7 +705,7 @@ def render_recon():
 
     st.divider()
 
-    st.subheader("정찰 / 도구")
+    st.subheader("🛠️ 도구 실행")
 
     col_target, col_user = st.columns([6, 4])
     with col_target:
@@ -722,7 +722,7 @@ def render_recon():
     grouped = _group_scenarios(scenarios)
     recon_scenarios = grouped["tools"]
 
-    st.markdown("### 🛠️ 도구 실행")
+    # st.markdown("### 🛠️ 도구 실행")
 
     if not recon_scenarios:
         st.info("표시할 정찰 도구가 없습니다.")

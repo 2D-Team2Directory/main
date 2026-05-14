@@ -259,7 +259,7 @@ def _render_bloodhound_home_card():
 # ------------------------------------------------------------------
 
 def render_home():
-    st.title("AD 공격/방어 시뮬레이션 랩")
+    st.title("🧑‍💻 2D   |   AD 공격/방어 시뮬레이션 랩")
     st.divider()
 
     st.subheader("홈")
@@ -380,7 +380,7 @@ def render_home():
 
     with col_rule_chart:
         if not df_top.empty and "위험도" in df_top.columns and "건수" in df_top.columns:
-            chart_df = df_top.set_index("탐지 룰")[["건수"]]
+            chart_df = df_top.set_index("위험도")[["건수"]]
             st.bar_chart(chart_df)
         else:
             st.info("차트로 표시할 탐지 룰이 없습니다.")

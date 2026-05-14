@@ -26,7 +26,7 @@ def _group_scenarios(scenarios):
 
 
 def _render_run_history():
-    st.title("공격")
+    st.title("⚔️ 공격")
     st.divider()
 
     col_title, col_refresh, col_auto = st.columns([6, 1.3, 2.7])
@@ -211,7 +211,7 @@ def render_attack():
         + grouped["general"]
     )
 
-    st.markdown("### 공격 시나리오")
+    # st.markdown("### 공격 시나리오")
 
     if not attack_scenarios:
         st.info("표시할 공격 시나리오가 없습니다.")

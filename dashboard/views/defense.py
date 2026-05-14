@@ -169,7 +169,7 @@ def _render_detection_summary(events):
 
 
 def render_defense():
-    st.title("방어")
+    st.title("🛡️ 방어")
     st.divider()
 
     col_title, col_refresh, col_rest = st.columns([6, 0.5, 3.5])

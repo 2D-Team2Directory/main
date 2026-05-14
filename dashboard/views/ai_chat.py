@@ -224,7 +224,7 @@ def run_agent_loop(user_text: str, model_id: str) -> str:
 def render_ai_chat():
     _init_ai_chat_state()
 
-    st.title("🛡️ AD Lab AI Assistant")
+    st.title("🤖 AD Lab AI Assistant")
     st.divider()
 
     st.subheader("AI Chat")
