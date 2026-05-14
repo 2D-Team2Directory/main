@@ -553,10 +553,10 @@ def _render_powerview_combined(pv_summary, pv_result, risk_rows, overall):
     c4.metric("OU", pv_summary.get("ous_count", 0))
     c5.metric("Trust", pv_summary.get("trusts_count", 0))
 
-    st.caption(
-        "2-1은 AD 객체 규모와 수집 범위만 보여줍니다. "
-        "SPN, NoPreAuth, 관리자 그룹, Interesting ACL처럼 위험도 판단에 쓰이는 항목은 2-2에서만 평가합니다."
-    )
+    # st.caption(
+    #     "2-1은 AD 객체 규모와 수집 범위만 보여줍니다. "
+    #     "SPN, NoPreAuth, 관리자 그룹, Interesting ACL처럼 위험도 판단에 쓰이는 항목은 2-2에서만 평가합니다."
+    # )
 
     # --- 2-2. 위험 항목 평가
     st.markdown("#### 2-2. 위험 항목 평가")
