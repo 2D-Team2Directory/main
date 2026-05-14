@@ -54,7 +54,7 @@ SEVERITY_STYLE = {
 }
 
 
-# README 방어 시나리오 매핑
+# README 방어 시나리오 매핑 (PowerView 위험 항목 → 권고사항)
 RECOMMENDATION_MAP = {
     "spn_users_count": [
         "서비스 계정 비밀번호 복잡도 강화 및 주기적 변경",
@@ -84,6 +84,74 @@ RECOMMENDATION_MAP = {
         "비정상 시간대 로그인 탐지",
     ],
 }
+
+
+# PowerView 위험 항목 → 가능한 공격 시나리오 매핑
+ATTACK_SCENARIO_MAP = {
+    "spn_users_count": [
+        ("Kerberoasting", "high",
+         "SPN 등록 계정의 TGS를 요청해 오프라인에서 비밀번호를 크래킹"),
+    ],
+    "no_preauth_users_count": [
+        ("AS-REP Roasting", "high",
+         "Pre-Auth 비활성 계정에 AS-REQ를 보내 암호화된 응답을 받아 크래킹"),
+    ],
+    "interesting_acls_count": [
+        ("ACL 기반 권한 상승", "high",
+         "WriteDACL/GenericAll 등 위험 권한을 이용해 대상 객체 제어권 확보"),
+        ("Shadow Credentials", "medium",
+         "msDS-KeyCredentialLink 속성 변조로 인증서 기반 권한 상승"),
+    ],
+    "domain_admins_count": [
+        ("내부 이동 / 관리자 권한 탈취", "high",
+         "Domain Admins 계정이 많을수록 한 명만 침해돼도 전체 도메인 통제 가능"),
+        ("Pass-the-Hash / Ticket", "medium",
+         "관리자 NTLM 해시 또는 TGT 재사용으로 다른 호스트 접근"),
+    ],
+    "enterprise_admins_count": [
+        ("포레스트 전역 권한 탈취", "critical",
+         "Enterprise Admins 침해 시 모든 도메인에 영향, 포레스트 신뢰 관계 악용 가능"),
+    ],
+    "dns_admins_count": [
+        ("DnsAdmins DLL Injection", "high",
+         "dnscmd로 악성 DLL 로드 → DC 권한 상승 (T1574)"),
+    ],
+}
+
+
+# PingCastle 일반 권고사항 (HealthCheck 점수/항목 기반)
+PINGCASTLE_RECOMMENDATIONS = [
+    ("Stale Object",
+     [
+         "오랫동안 사용되지 않은 계정/컴퓨터 객체 비활성화 및 정리",
+         "LAPS(Local Admin Password Solution) 도입으로 로컬 관리자 암호 자동 회전",
+         "krbtgt 계정 비밀번호 주기적 재설정 (12개월 이내 권장)",
+     ]),
+    ("Privileged Account",
+     [
+         "Domain Admins / Enterprise Admins 그룹 최소화 및 분리",
+         "관리자 전용 워크스테이션(PAW) 사용 강제",
+         "Protected Users 보안 그룹 활용",
+     ]),
+    ("Trust 관계",
+     [
+         "불필요한 도메인 신뢰 관계 제거",
+         "SID Filtering / Selective Authentication 활성화",
+     ]),
+    ("Anomalies (이상 설정)",
+     [
+         "Pre-Authentication 비활성 옵션이 켜진 계정 점검 및 해제",
+         "Reversible Encryption 옵션 사용 계정 점검",
+         "Unconstrained Delegation 컴퓨터 점검 및 제한",
+     ]),
+    ("정책/감사 강화",
+     [
+         "GPO를 통한 감사 정책(Audit Policy) 강화",
+         "LLMNR / NetBIOS-NS / WPAD 비활성화로 응답자(Responder) 공격 차단",
+         "SMB Signing 강제 및 SMBv1 비활성화",
+         "비정상 시간대 / 다중 호스트 동시 로그인 알림 룰 적용",
+     ]),
+]
 
 
 # ------------------------------------------------------------------
@@ -280,65 +348,80 @@ def _compute_risks(pv_summary: dict):
     return rows, overall
 
 
-def _render_risk_assessment(pv_summary: dict):
-    st.markdown('<div class="report-section">', unsafe_allow_html=True)
-    st.markdown("### 2. 위험 항목 평가")
+# ------------------------------------------------------------------
+# PowerView 종합 (위험 평가 + 메트릭 + 상세 + 추천 공격 시나리오)
+# ------------------------------------------------------------------
+def _render_attack_scenarios(risk_rows):
+    """위험 등급이 있는 항목을 기반으로 주의해야 할 공격 시나리오 출력"""
+    triggered = [r for r in risk_rows
+                 if SEVERITY_ORDER.get(r["등급"], 0) >= SEVERITY_ORDER["low"]]
 
-    rows, overall = _compute_risks(pv_summary)
+    if not triggered:
+        st.success("현재 결과 기준으로 즉시 주의가 필요한 공격 시나리오는 없습니다.")
+        return
 
-    if not rows:
-        st.info("PowerView 결과가 없어 위험도를 평가할 수 없습니다.")
-        st.markdown('</div>', unsafe_allow_html=True)
-        return overall
+    # 항목별 매핑된 시나리오 수집
+    seen = set()
+    scenarios = []
+    for r in triggered:
+        for name, sev, desc in ATTACK_SCENARIO_MAP.get(r["key"], []):
+            if name in seen:
+                continue
+            seen.add(name)
+            scenarios.append({
+                "name": name,
+                "severity": sev,
+                "desc": desc,
+                "source": r["항목"],
+                "source_value": r["값"],
+            })
 
-    st.markdown(
-        f"전체 위험 등급 : {_severity_badge_html(overall)}",
-        unsafe_allow_html=True,
-    )
+    if not scenarios:
+        st.info("매핑된 공격 시나리오가 없습니다.")
+        return
 
-    # 표로 출력
+    # 심각도 순 정렬
+    scenarios.sort(key=lambda x: -SEVERITY_ORDER.get(x["severity"], 0))
+
     table_html = """
     <table style="width:100%; border-collapse:collapse; margin-top:10px;">
         <thead>
-            <tr style="background:#f9fafb;">
-                <th style="padding:8px; border:1px solid #e5e7eb; text-align:left;">항목</th>
-                <th style="padding:8px; border:1px solid #e5e7eb; text-align:right;">값</th>
-                <th style="padding:8px; border:1px solid #e5e7eb; text-align:center;">등급</th>
-                <th style="padding:8px; border:1px solid #e5e7eb; text-align:left;">설명</th>
+            <tr style="background:#fef2f2;">
+                <th style="padding:8px; border:1px solid #fecaca; text-align:left;">공격 시나리오</th>
+                <th style="padding:8px; border:1px solid #fecaca; text-align:center;">위험도</th>
+                <th style="padding:8px; border:1px solid #fecaca; text-align:left;">유발 조건</th>
+                <th style="padding:8px; border:1px solid #fecaca; text-align:left;">설명</th>
             </tr>
         </thead>
         <tbody>
     """
-    for r in rows:
+    for s in scenarios:
         table_html += (
             "<tr>"
-            f"<td style='padding:8px; border:1px solid #e5e7eb;'>{r['항목']}</td>"
-            f"<td style='padding:8px; border:1px solid #e5e7eb; text-align:right;'>{r['값']}</td>"
-            f"<td style='padding:8px; border:1px solid #e5e7eb; text-align:center;'>{_severity_badge_html(r['등급'])}</td>"
-            f"<td style='padding:8px; border:1px solid #e5e7eb; color:#374151;'>{r['설명']}</td>"
+            f"<td style='padding:8px; border:1px solid #fecaca;'><b>{s['name']}</b></td>"
+            f"<td style='padding:8px; border:1px solid #fecaca; text-align:center;'>{_severity_badge_html(s['severity'])}</td>"
+            f"<td style='padding:8px; border:1px solid #fecaca; color:#374151;'>{s['source']} = {s['source_value']}</td>"
+            f"<td style='padding:8px; border:1px solid #fecaca; color:#374151;'>{s['desc']}</td>"
             "</tr>"
         )
     table_html += "</tbody></table>"
 
     st.markdown(table_html, unsafe_allow_html=True)
 
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown("")
-    return overall
 
-
-# ------------------------------------------------------------------
-# PowerView 상세
-# ------------------------------------------------------------------
-def _render_powerview_section(pv_summary, pv_result):
+def _render_powerview_combined(pv_summary, pv_result, risk_rows, overall):
+    """PowerView 위험 평가 + 메트릭 + 상세 + 추천 공격 시나리오를 하나로"""
     st.markdown('<div class="report-section">', unsafe_allow_html=True)
-    st.markdown("### 3. PowerView 상세")
+    st.markdown("### 2. PowerView 종합")
 
     if not _summary_available(pv_summary):
         st.info("PowerView 결과가 없습니다.")
         st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("")
         return
 
+    # --- 2-1. 자산 메트릭
+    st.markdown("#### 2-1. 자산 현황")
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("총 사용자", pv_summary.get("total_users", 0))
     c2.metric("총 그룹", pv_summary.get("total_groups", 0))
@@ -352,7 +435,47 @@ def _render_powerview_section(pv_summary, pv_result):
     c8.metric("DnsAdmins", pv_summary.get("dns_admins_count", 0))
     c9.metric("Interesting ACLs", pv_summary.get("interesting_acls_count", 0))
 
-    # 상세 리스트 (result.json 안에 사용자/그룹 목록이 있으면 표시)
+    # --- 2-2. 위험 항목 평가
+    st.markdown("#### 2-2. 위험 항목 평가")
+
+    if not risk_rows:
+        st.info("평가 가능한 항목이 없습니다.")
+    else:
+        st.markdown(
+            f"전체 위험 등급 : {_severity_badge_html(overall)}",
+            unsafe_allow_html=True,
+        )
+
+        table_html = """
+        <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+            <thead>
+                <tr style="background:#f9fafb;">
+                    <th style="padding:8px; border:1px solid #e5e7eb; text-align:left;">항목</th>
+                    <th style="padding:8px; border:1px solid #e5e7eb; text-align:right;">값</th>
+                    <th style="padding:8px; border:1px solid #e5e7eb; text-align:center;">등급</th>
+                    <th style="padding:8px; border:1px solid #e5e7eb; text-align:left;">설명</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
+        for r in risk_rows:
+            table_html += (
+                "<tr>"
+                f"<td style='padding:8px; border:1px solid #e5e7eb;'>{r['항목']}</td>"
+                f"<td style='padding:8px; border:1px solid #e5e7eb; text-align:right;'>{r['값']}</td>"
+                f"<td style='padding:8px; border:1px solid #e5e7eb; text-align:center;'>{_severity_badge_html(r['등급'])}</td>"
+                f"<td style='padding:8px; border:1px solid #e5e7eb; color:#374151;'>{r['설명']}</td>"
+                "</tr>"
+            )
+        table_html += "</tbody></table>"
+        st.markdown(table_html, unsafe_allow_html=True)
+
+    # --- 2-3. 추천/주의 공격 시나리오
+    st.markdown("#### 2-3. 주의해야 할 공격 시나리오")
+    st.caption("위험 항목 평가 결과를 바탕으로 우선 점검이 권장되는 공격 시나리오입니다.")
+    _render_attack_scenarios(risk_rows)
+
+    # --- 2-4. 상세 목록 (있는 경우만)
     detail_keys = [
         ("domain_admins", "Domain Admins 목록"),
         ("enterprise_admins", "Enterprise Admins 목록"),
@@ -361,20 +484,21 @@ def _render_powerview_section(pv_summary, pv_result):
         ("no_preauth_users", "NoPreAuth 계정 목록"),
         ("interesting_acls", "Interesting ACLs 목록"),
     ]
+    detail_items = [(k, t) for k, t in detail_keys
+                    if isinstance(pv_result, dict) and pv_result.get(k)]
 
-    for key, title in detail_keys:
-        items = pv_result.get(key) if isinstance(pv_result, dict) else None
-        if not items:
-            continue
-
-        with st.expander(f"{title} ({len(items)})", expanded=False):
-            try:
-                if isinstance(items[0], dict):
-                    st.dataframe(pd.DataFrame(items), use_container_width=True, hide_index=True)
-                else:
-                    st.write(items)
-            except Exception:
-                st.json(items)
+    if detail_items:
+        st.markdown("#### 2-4. 상세 목록")
+        for key, title in detail_items:
+            items = pv_result.get(key)
+            with st.expander(f"{title} ({len(items)})", expanded=False):
+                try:
+                    if isinstance(items[0], dict):
+                        st.dataframe(pd.DataFrame(items), use_container_width=True, hide_index=True)
+                    else:
+                        st.write(items)
+                except Exception:
+                    st.json(items)
 
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("")
@@ -383,22 +507,48 @@ def _render_powerview_section(pv_summary, pv_result):
 # ------------------------------------------------------------------
 # PingCastle 상세
 # ------------------------------------------------------------------
-def _render_pingcastle_section(pc_summary, pc_result):
+def _render_pingcastle_combined(pc_summary, pc_result):
+    """PingCastle 점수/리스크 요약 + HTML 임베드 + 점검/정책개선/권고사항"""
     st.markdown('<div class="report-section">', unsafe_allow_html=True)
-    st.markdown("### 4. PingCastle 상세")
+    st.markdown("### 3. PingCastle 종합")
 
     if not _summary_available(pc_summary):
         st.info("PingCastle 결과가 없습니다.")
+        # 결과가 없어도 일반 권고사항은 보여주기
+        st.markdown("#### 일반 점검 / 정책 개선 권고")
+        for category, recs in PINGCASTLE_RECOMMENDATIONS:
+            with st.container(border=True):
+                st.markdown(f"**{category}**")
+                for rec in recs:
+                    st.markdown(f"- {rec}")
         st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("")
         return
 
+    # --- 3-1. 점수 / 상태 요약
+    st.markdown("#### 3-1. 점수 / 상태 요약")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("도메인", pc_summary.get("domain", "-"))
     m2.metric("대상", pc_summary.get("target_ip", "-"))
     m3.metric("상태", pc_summary.get("status", "-"))
     m4.metric("XML 생성", "OK" if pc_summary.get("xml_generated") else "-")
 
-    # HTML 보고서 임베드
+    # 선택적으로 PingCastle 점수 필드가 summary에 들어있다면 표시
+    score_keys = [
+        ("global_score", "전체 점수"),
+        ("stale_object_score", "Stale Object"),
+        ("privileged_group_score", "Privileged Group"),
+        ("trust_score", "Trust"),
+        ("anomaly_score", "Anomalies"),
+    ]
+    score_items = [(k, t) for k, t in score_keys if pc_summary.get(k) is not None]
+    if score_items:
+        st.markdown("**리스크 점수 (낮을수록 좋음)**")
+        cols = st.columns(len(score_items))
+        for col, (k, t) in zip(cols, score_items):
+            col.metric(t, pc_summary.get(k))
+
+    # --- 3-2. HealthCheck HTML 보고서
     html_name = pc_summary.get("html_report")
     html_path = None
     if html_name:
@@ -407,7 +557,7 @@ def _render_pingcastle_section(pc_summary, pc_result):
             html_path = candidate
 
     if html_path:
-        st.markdown("#### HealthCheck HTML 보고서")
+        st.markdown("#### 3-2. HealthCheck HTML 보고서")
         height = st.slider(
             "PingCastle 보고서 높이 (px)",
             min_value=500, max_value=1400, value=900, step=100,
@@ -419,9 +569,10 @@ def _render_pingcastle_section(pc_summary, pc_result):
         except Exception as e:
             st.error(f"PingCastle HTML 로드 실패: {e}")
     else:
+        st.markdown("#### 3-2. HealthCheck HTML 보고서")
         st.info("HTML 보고서 파일을 찾을 수 없습니다.")
 
-    # 다운로드 버튼
+    # --- 3-3. 보고서 원본 파일 다운로드
     artifacts = []
     if isinstance(pc_summary.get("artifacts"), list):
         artifacts = pc_summary["artifacts"]
@@ -429,7 +580,7 @@ def _render_pingcastle_section(pc_summary, pc_result):
         artifacts = pc_result["saved_artifacts"]
 
     if artifacts:
-        st.markdown("#### 보고서 원본 파일")
+        st.markdown("#### 3-3. 보고서 원본 파일")
         for artifact in artifacts:
             filename = artifact.get("filename")
             latest_path = artifact.get("latest_path")
@@ -448,6 +599,15 @@ def _render_pingcastle_section(pc_summary, pc_result):
             except Exception as e:
                 st.error(f"{filename} 다운로드 준비 실패: {e}")
 
+    # --- 3-4. 점검 / 정책 개선 / 권고사항
+    st.markdown("#### 3-4. 점검 / 정책 개선 / 권고사항")
+    st.caption("PingCastle 결과 카테고리별 일반 권고사항입니다. HTML 보고서 상세와 함께 검토하세요.")
+    for category, recs in PINGCASTLE_RECOMMENDATIONS:
+        with st.container(border=True):
+            st.markdown(f"**{category}**")
+            for rec in recs:
+                st.markdown(f"- {rec}")
+
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("")
 
@@ -457,7 +617,7 @@ def _render_pingcastle_section(pc_summary, pc_result):
 # ------------------------------------------------------------------
 def _render_bloodhound_section(collections):
     st.markdown('<div class="report-section">', unsafe_allow_html=True)
-    st.markdown("### 5. BloodHound 그래프")
+    st.markdown("### 4. BloodHound 그래프")
 
     if not collections:
         st.info(f"`{BLOODHOUND_ROOT}` 에 graph.html 이 포함된 컬렉션이 없습니다.")
@@ -502,52 +662,11 @@ def _render_bloodhound_section(collections):
 
 
 # ------------------------------------------------------------------
-# 권고사항
-# ------------------------------------------------------------------
-def _render_recommendations(risk_rows):
-    st.markdown('<div class="report-section">', unsafe_allow_html=True)
-    st.markdown("### 6. 권고사항")
-
-    # 위험도 medium 이상인 항목에 대한 권고만 추림
-    triggered = [r for r in risk_rows if SEVERITY_ORDER.get(r["등급"], 0) >= SEVERITY_ORDER["medium"]]
-
-    if not triggered:
-        st.success("주요 위험 항목이 감지되지 않았습니다. 정기적인 정찰 결과 모니터링을 유지하세요.")
-        # 그래도 기본 권고는 안내
-        st.markdown(
-            "- LLMNR, NetBIOS 비활성화  \n"
-            "- 관리자 계정 사용 제한  \n"
-            "- GPO를 통한 감사 정책 강화  \n"
-            "- 특권 계정 이벤트 알림"
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown("")
-        return
-
-    for r in triggered:
-        with st.container(border=True):
-            st.markdown(
-                f"**{r['항목']}** &nbsp; "
-                f"(값: {r['값']}) &nbsp; {_severity_badge_html(r['등급'])}",
-                unsafe_allow_html=True,
-            )
-            recs = RECOMMENDATION_MAP.get(r["key"], [])
-            if recs:
-                for rec in recs:
-                    st.markdown(f"- {rec}")
-            else:
-                st.markdown("- 관련 항목 모니터링 강화")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown("")
-
-
-# ------------------------------------------------------------------
 # 부록 (원본 데이터)
 # ------------------------------------------------------------------
 def _render_appendix(pv_result, pc_result):
     st.markdown('<div class="report-section">', unsafe_allow_html=True)
-    st.markdown("### 7. 부록 - 원본 데이터")
+    st.markdown("### 5. 부록 - 원본 데이터")
 
     with st.expander("PowerView result.json", expanded=False):
         if _summary_available(pv_result):
@@ -610,27 +729,23 @@ def render_report():
     pc_result = _safe_get_result("pingcastle")
     bh_collections = _list_bloodhound_collections()
 
+    # 위험 평가 계산 (Executive Summary와 PowerView 종합 양쪽에서 사용)
+    risk_rows, overall_severity = _compute_risks(pv_summary)
+
     # 표지
     _render_cover(domain, target_ip, requested_by)
 
     # 1. Executive Summary
     _render_executive_summary(pv_summary, pc_summary, bh_collections)
 
-    # 2. 위험 평가
-    risk_rows, _ = _compute_risks(pv_summary)
-    _render_risk_assessment(pv_summary)
+    # 2. PowerView 종합 (위험 평가 + 메트릭 + 상세 + 추천 공격 시나리오)
+    _render_powerview_combined(pv_summary, pv_result, risk_rows, overall_severity)
 
-    # 3. PowerView
-    _render_powerview_section(pv_summary, pv_result)
+    # 3. PingCastle 종합 (점수 요약 + HTML 임베드 + 점검/정책개선/권고사항)
+    _render_pingcastle_combined(pc_summary, pc_result)
 
-    # 4. PingCastle
-    _render_pingcastle_section(pc_summary, pc_result)
-
-    # 5. BloodHound
+    # 4. BloodHound 그래프
     _render_bloodhound_section(bh_collections)
 
-    # 6. 권고사항
-    _render_recommendations(risk_rows)
-
-    # 7. 부록
+    # 5. 부록 - 원본 데이터
     _render_appendix(pv_result, pc_result)
