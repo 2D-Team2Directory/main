@@ -362,11 +362,11 @@ def _render_pingcastle_summary():
 
     st.markdown("### PingCastle HealthCheck 결과")
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("도메인", summary.get("domain", "-"))
-    m2.metric("대상", summary.get("target_ip", "-"))
-    m3.metric("상태", summary.get("status", "-"))
-    m4.metric("XML 생성", "OK" if summary.get("xml_generated") else "-")
+    m1, m2, m3, m4 = st.columns([2, 3, 2, 2])
+    m1.metric("🌐 도메인", summary.get("domain", "-"))
+    m2.metric("🖥️ 대상", summary.get("target_ip", "-"))
+    m3.metric("🔘 상태", summary.get("status", "-"))
+    m4.metric("📄 XML 생성", "OK" if summary.get("xml_generated") else "-")
 
     artifacts = summary.get("artifacts") or result.get("saved_artifacts") or []
 
@@ -557,15 +557,15 @@ def _render_powerview_summary():
         return
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("총 사용자 수", summary.get("total_users", 0))
-    c2.metric("총 그룹 수", summary.get("total_groups", 0))
-    c3.metric("총 컴퓨터 수", summary.get("total_computers", 0))
+    c1.metric("👤 총 사용자 수", summary.get("total_users", 0))
+    c2.metric("👥 총 그룹 수", summary.get("total_groups", 0))
+    c3.metric("🖥️ 총 컴퓨터 수", summary.get("total_computers", 0))
     c4.metric("🎯 SPN 계정 수", summary.get("spn_users_count", 0))
     c5.metric("🔓 NoPreAuth 계정 수", summary.get("no_preauth_users_count", 0))
 
     c6, c7, c8, c9 = st.columns(4)
     c6.metric("👑 Domain Admins", summary.get("domain_admins_count", 0))
-    c7.metric("Enterprise Admins", summary.get("enterprise_admins_count", 0))
+    c7.metric("🧑‍💻 Enterprise Admins", summary.get("enterprise_admins_count", 0))
     c8.metric("🌐 DnsAdmins", summary.get("dns_admins_count", 0))
     c9.metric("🧩 Interesting ACLs", summary.get("interesting_acls_count", 0))
 
@@ -602,7 +602,7 @@ def _render_powerview_summary():
                         font-weight:800;
                         margin-bottom:4px;
                     ">
-                        💡 {rec_title}
+                        ⚠️ {rec_title}
                     </div>
                     <div style="
                         font-size:0.95rem;
@@ -715,7 +715,7 @@ def render_recon():
 
     st.markdown("### 정찰 결과 요약")
 
-    tab1, tab2, tab3 = st.tabs(["PowerView", "PingCastle", "BloodHound"])
+    tab1, tab2, tab3 = st.tabs(["🔍 PowerView", "🩺 PingCastle", "🔬 BloodHound"])
 
     with tab1:
         try:

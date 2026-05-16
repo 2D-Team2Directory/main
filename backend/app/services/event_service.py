@@ -232,12 +232,19 @@ def run_llm_triage_for_event(event_row_id: int):
             "event_row_id": event_row_id,
             "llm_triage": risk["llm_triage"],
         }
+    
+
+    try:
+        scenario_runs = get_recent_scenario_runs_for_context(limit=10)
+    except Exception:
+        scenario_runs = []
 
     llm_triage = run_llm_triage(
         event=event_dict,
         normalized=normalized,
         detection=detection,
         risk=risk,
+        scenario_runs=scenario_runs,
     )
 
     risk["llm_triage"] = llm_triage

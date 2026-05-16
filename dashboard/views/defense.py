@@ -65,14 +65,9 @@ def _is_llm_triage_target(detection: dict, risk: dict) -> bool:
 
     matched_rule_ids = _matched_rule_ids(detection)
 
-    # RULE-041 단독은 제외. 도구/정찰 관련 룰이 있을 때만 활성화.
+    # 범용 4688 룰인 RULE-041 단독은 제외.
+    # 도구/정찰 관련 룰이 있을 때만 LLM 분석 버튼 활성화.
     if not (matched_rule_ids & LLM_TARGET_RULE_IDS):
-        return False
-
-    ai_context = risk.get("ai_context") or {}
-
-    # real_attack은 LLM 하향/오탐 판단 대상에서 제외
-    if ai_context.get("verdict") == "real_attack_no_downgrade":
         return False
 
     return True
@@ -190,7 +185,7 @@ def _render_detection_summary(events):
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("탐지 이벤트", metrics["detected_event_count"])
     m2.metric("룰 매칭 수", metrics["total_rule_hits"])
-    m3.metric("High 이상", metrics["high_or_more_count"])
+    m3.metric("High 이상 룰 매칭 수", metrics["high_or_more_count"])
     m4.metric("최고 점수", metrics["max_event_score"])
 
     if not rows:
@@ -225,67 +220,72 @@ def render_defense():
     st.title("🛡️ 방어")
     st.divider()
 
-    col_title, col_refresh, col_rest = st.columns([6, 0.5, 3.5])
+    # col_title, col_refresh, col_rest = st.columns([6, 0.5, 3.5])
 
-    with col_title:
-        target_ip = _get_current_target_ip()
-        st.subheader(f"방어 모니터링 ({target_ip})")
+    # with col_title:
+    target_ip = _get_current_target_ip()
+    st.subheader(f"방어 모니터링 ({target_ip})")
 
-        try:
-            collection_state = get_event_collection_state()
-        except Exception:
-            collection_state = {
-                "paused": False,
-                "reason": "-",
-                "paused_at": None,
-            }
+    try:
+        collection_state = get_event_collection_state()
+    except Exception:
+        collection_state = {
+            "paused": False,
+            "reason": "-",
+            "paused_at": None,
+        }
 
-        paused = bool(collection_state.get("paused"))
+    paused = bool(collection_state.get("paused"))
 
-        state_col1, state_col2, state_col3 = st.columns([5, 2, 2])
+    state_col1, state_col2, state_col3, state_col4 = st.columns([5.5, 1.5, 1.5, 1.5])
 
-        with state_col1:
-            if paused:
-                st.warning(
-                    f"로그 수집 일시정지 중 "
-                    f"(reason: {collection_state.get('reason', '-')}, "
-                    f"paused_at: {collection_state.get('paused_at', '-')})"
-                )
-            else:
-                st.success("로그 수집 활성화 상태")
+    with state_col1:
+        if paused:
+            st.warning(
+                f"로그 수집 일시정지 중 "
+                f"(reason: {collection_state.get('reason', '-')}, "
+                f"paused_at: {collection_state.get('paused_at', '-')})"
+            )
+        else:
+            st.success("로그 수집 활성화 상태")
 
-        with state_col2:
-            if st.button(
-                "⏸ 수집 중단",
-                disabled=paused,
-                key="pause_event_collection",
-                help="새로 들어오는 이벤트의 저장/탐지 처리를 잠시 중단합니다.",
-            ):
-                try:
-                    pause_event_collection(reason="dashboard_manual_pause")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"수집 중단 실패: {e}")
+    with state_col2:
+        if st.button(
+            "⏸ 수집 중단",
+            disabled=paused,
+            key="pause_event_collection",
+            help="새로 들어오는 이벤트의 저장/탐지 처리를 잠시 중단합니다.",
+        ):
+            try:
+                pause_event_collection(reason="dashboard_manual_pause")
+                st.rerun()
+            except Exception as e:
+                st.error(f"수집 중단 실패: {e}")
 
-        with state_col3:
-            if st.button(
-                "▶ 수집 재개",
-                disabled=not paused,
-                key="resume_event_collection",
-                help="이벤트 저장/탐지 처리를 다시 시작합니다.",
-            ):
-                try:
-                    resume_event_collection()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"수집 재개 실패: {e}")
+    with state_col3:
+        if st.button(
+            "▶  수집 재개",
+            disabled=not paused,
+            key="resume_event_collection",
+            help="이벤트 저장/탐지 처리를 다시 시작합니다.",
+        ):
+            try:
+                resume_event_collection()
+                st.rerun()
+            except Exception as e:
+                st.error(f"수집 재개 실패: {e}")
 
+    with state_col4:
+        if st.button(
+            "↻  새로고침",
+            help="이벤트 로그 목록을 새로고침합니다.",
+        ):
+            try:
+                st.rerun()
+            except Exception as e:
+                st.error(f"새로 고침 실패: {e}")
 
-
-
-    with col_refresh:
-        if st.button("↻", help="이벤트 새로고침"):
-            st.rerun()
+        
 
     try:
         data = get_events(since_minutes=60)
@@ -497,6 +497,8 @@ def render_defense():
             group_name = item.get("group_name", "-")
             message = item.get("message", "-")
 
+            meta = get_event_meta(str(event_id), event_type)
+
             event_type = normalized.get("event_type", "-")
             host_role = normalized.get("host_role", "-")
             account_type = normalized.get("account_type", "-")
@@ -510,12 +512,8 @@ def render_defense():
             representative_rule_name = detection.get("rule_name") or "-"
             rule_summary = ", ".join(all_rule_labels) if all_rule_labels else representative_rule_name
 
-            reasons = unique_keep_order(as_list(detection.get("reason")))
-            response_guide = unique_keep_order(as_list(detection.get("response_guide")))
-
             severity = risk.get("severity", "none")
             final_score = risk.get("final_score", 0)
-            ai_context = risk.get("ai_context") or {}
 
             if detected_rule_count > 1:
                 expander_title = f"🚨 ID {event_id}   |   {computer_name}   |   탐지 {detected_rule_count}개   |   {event_time}"
@@ -602,46 +600,6 @@ def render_defense():
                     if show_message:
                         st.markdown("**메시지**")
                         st.write(message)
-
-
-
-
-                # -----------------------------
-                # 컨텍스트 기반 판단 블록
-                # -----------------------------
-                ai_context = risk.get("ai_context") or {}
-
-                st.divider()
-                st.markdown("**컨텍스트 기반 판단**")
-
-                if ai_context.get("enabled"):
-                    ctx_verdict = ai_context.get("verdict", "-")
-                    ctx_summary = ai_context.get("summary", "-")
-                    ctx_applied = ai_context.get("applied", False)
-                    related = ai_context.get("related_scenario") or {}
-                    ctx_reasons = ai_context.get("reasons") or []
-
-                    if ctx_applied:
-                        st.success(f"판정: **{ctx_verdict}**")
-                    else:
-                        st.info(f"판정: **{ctx_verdict}**")
-
-                    st.write(ctx_summary)
-
-                    if related:
-                        st.caption(
-                            f"관련 시나리오: "
-                            f"{related.get('scenario_id', '-')} / "
-                            f"{related.get('scenario_type', '-')} / "
-                            f"{related.get('status', '-')}"
-                        )
-
-                    if ctx_reasons:
-                        with st.expander("컨텍스트 판단 근거", expanded=False):
-                            for reason in ctx_reasons:
-                                st.write(f"- {reason}")
-                else:
-                    st.caption("컨텍스트 기반 판단 대상이 아닙니다.")
 
 
                 # -----------------------------

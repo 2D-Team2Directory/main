@@ -190,7 +190,7 @@ def calculate_risk(
     final_score = base_score
     context_weight = 0
 
-    ai_context = {
+    rule_context = {
         "enabled": False,
         "applied": False,
         "verdict": "not_evaluated",
@@ -204,7 +204,7 @@ def calculate_risk(
 
     # real_attack은 명시적으로 보정 제외
     if related_type in CONTEXT_EXCLUDED_SCENARIO_TYPES:
-        ai_context.update({
+        rule_context.update({
             "enabled": True,
             "applied": False,
             "verdict": "real_attack_no_downgrade",
@@ -215,26 +215,26 @@ def calculate_risk(
 
     # tools / detection_test만 보정
     elif related_type in CONTEXT_ALLOWED_SCENARIO_TYPES:
-        ai_context["enabled"] = True
-        ai_context["related_scenario"] = related_scenario
+        rule_context["enabled"] = True
+        rule_context["related_scenario"] = related_scenario
 
         if related_type == "tools" and _is_tool_detection(detection):
             context_weight -= 35
-            ai_context["reasons"].append("정찰 도구 탐지 룰과 승인된 tools 실행 이력이 시간대상 일치")
-            ai_context["verdict"] = "expected_tool_activity"
-            ai_context["summary"] = "승인된 정찰 도구 실행으로 인한 탐지 가능성이 높습니다."
+            rule_context["reasons"].append("정찰 도구 탐지 룰과 승인된 tools 실행 이력이 시간대상 일치")
+            rule_context["verdict"] = "expected_tool_activity"
+            rule_context["summary"] = "승인된 정찰 도구 실행으로 인한 탐지 가능성이 높습니다."
 
         elif related_type == "detection_test":
             context_weight -= 25
-            ai_context["reasons"].append("detection_test 시나리오 실행 이력과 시간대상 일치")
-            ai_context["verdict"] = "expected_detection_test"
-            ai_context["summary"] = "승인된 탐지 테스트 시나리오로 인한 이벤트 가능성이 높습니다."
+            rule_context["reasons"].append("detection_test 시나리오 실행 이력과 시간대상 일치")
+            rule_context["verdict"] = "expected_detection_test"
+            rule_context["summary"] = "승인된 탐지 테스트 시나리오로 인한 이벤트 가능성이 높습니다."
 
-        ai_context["applied"] = context_weight != 0
+        rule_context["applied"] = context_weight != 0
 
     # 도구 룰인데 실행 이력이 없으면 오히려 의심도 상승
     elif _is_tool_detection(detection):
-        ai_context.update({
+        rule_context.update({
             "enabled": True,
             "applied": True,
             "verdict": "unapproved_tool_activity",
@@ -253,5 +253,5 @@ def calculate_risk(
         "final_score": final_score,
         "severity": severity,
         "base_reasons": base_reasons,
-        "ai_context": ai_context,
+        "rule_context": rule_context,
     }

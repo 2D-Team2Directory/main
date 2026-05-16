@@ -1,5 +1,4 @@
 from fastapi import FastAPI,  HTTPException, Body
-from typing import List
 
 from app.db import init_db
 from app.models import EventIn, ScenarioRunRequest

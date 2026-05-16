@@ -59,14 +59,8 @@ def should_run_llm_triage(detection: dict, risk: dict) -> bool:
 
     matched_rule_ids = _matched_rule_ids(detection)
 
-    # RULE-041 단독 같은 범용 프로세스 생성 탐지는 제외
+    # RULE-041 같은 범용 프로세스 생성 룰 단독은 제외
     if not (matched_rule_ids & LLM_TARGET_RULE_IDS):
-        return False
-
-    ai_context = risk.get("ai_context") or {}
-
-    # real_attack은 오탐/정상 실습으로 낮춰 판단하지 않음
-    if ai_context.get("verdict") == "real_attack_no_downgrade":
         return False
 
     return True
@@ -101,7 +95,7 @@ def _fallback_result(reason: str, called: bool = False) -> dict:
         "summary": "LLM 2차 판정을 수행하지 않았습니다.",
         "suspicious_points": [],
         "benign_context": [],
-        "recommended_action": "룰 탐지 결과와 컨텍스트 판단 근거를 기준으로 수동 확인하세요.",
+        "recommended_action": "룰 탐지 결과와 이벤트 원문을 기준으로 수동 확인하세요.",
         "error": reason,
     }
 
@@ -111,6 +105,7 @@ def _build_payload(
     normalized: dict,
     detection: dict,
     risk: dict,
+    scenario_runs: list[dict] | None = None,
 ) -> dict[str, Any]:
     matched_rules = detection.get("matched_rules") or []
 
@@ -167,8 +162,8 @@ def _build_payload(
             "final_score": risk.get("final_score"),
             "severity": risk.get("severity"),
             "base_reasons": risk.get("base_reasons"),
-            "ai_context": risk.get("ai_context"),
         },
+        "scenario_runs": scenario_runs,
     }
 
 
@@ -204,6 +199,7 @@ def run_llm_triage(
     normalized: dict,
     detection: dict,
     risk: dict,
+    scenario_runs: list[dict] | None = None,
 ) -> dict:
     if not should_run_llm_triage(detection, risk):
         return _fallback_result("not_target", called=False)
@@ -216,6 +212,7 @@ def run_llm_triage(
         normalized=normalized,
         detection=detection,
         risk=risk,
+        scenario_runs=scenario_runs,
     )
 
     system_prompt = (
@@ -228,10 +225,12 @@ def run_llm_triage(
 
 판단 기준:
 - 이 시스템은 AD 보안 교육용 실습 환경이다.
-- ai_context.related_scenario.scenario_type 이 tools 또는 detection_test이면 승인된 실습 활동 가능성을 고려한다.
-- ai_context.verdict 가 expected_tool_activity 이면 승인된 정찰 도구 실행 가능성을 설명한다.
-- real_attack은 정상/오탐으로 낮춰 판단하지 않는다.
-- WinRM, wsmprovhost.exe, whoami.exe, PowerView, ScriptBlock 로그, RULE-106, RULE-107, RULE-109는 정찰 흐름과 관련될 수 있다.
+- matched_rules에 RULE-106, RULE-107, RULE-109가 있으면 WinRM/PowerShell 기반 정찰 흐름 가능성을 고려한다.
+- scenario_runs에서 이벤트 시간과 겹치는 실행 이력이 있는지 확인한다.
+- 겹치는 실행 이력의 scenario_type이 tools이면 승인된 정찰 도구 실행 가능성이 높다.
+- scenario_type이 detection_test이면 탐지 테스트 가능성이 높다.
+- scenario_type이 real_attack이면 정상/오탐으로 낮춰 판단하지 않는다.
+- 실행 이력이 없는데 도구/정찰 룰이 탐지되면 suspicious_unapproved_activity로 본다.
 - 확실하지 않은 내용은 단정하지 말고 needs_review로 둔다.
 - 최종 위험도 점수 자체를 바꾸지는 말고, 분석가가 이해할 수 있는 판단 근거와 권고 조치만 작성한다.
 
