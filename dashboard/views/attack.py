@@ -38,7 +38,7 @@ def _render_run_history():
             st.rerun()
 
     try:
-        history_data = get_scenario_runs(limit=20)
+        history_data = get_scenario_runs(limit=10)
         history_data = [
             item for item in history_data
             if not is_recon_run(item)

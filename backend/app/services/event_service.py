@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 from app.db import get_conn
 from analysis.bundle_builder import build_event_bundle
+from app.services.scenario_service import list_scenario_runs
 
 import logging
 logger = logging.getLogger("event_save_policy")
@@ -12,6 +13,9 @@ logger = logging.getLogger("event_save_policy")
 SAVE_EVENT_LOCK = threading.Lock()
 
 EVENT_SAVE_MODE = os.getenv("EVENT_SAVE_MODE", "lab").lower()
+EVENT_COLLECTION_PAUSED = False
+EVENT_COLLECTION_PAUSE_REASON = ""
+EVENT_COLLECTION_PAUSED_AT = None
 
 IMPORTANT_EVENT_IDS = {
     # Windows Security
@@ -21,6 +25,8 @@ IMPORTANT_EVENT_IDS = {
     "4648",  # 명시적 자격 증명 사용
     "4672",  # 특권 로그온
     "4688",  # 프로세스 생성
+    "4103",  # PowerShell Module Logging
+    "4104",  # PowerShell Script Block Logging
 
     # 계정/그룹 변경
     "4720", "4722", "4723", "4724", "4725", "4726",
@@ -42,6 +48,9 @@ IMPORTANT_EVENT_IDS = {
 }
 
 
+# ===============================================
+# 유틸 함수
+# ===============================================
 
 def _get_detected(bundle: dict) -> bool:
     detection = bundle.get("detection") or {}
@@ -70,6 +79,90 @@ def _get_event_id(event) -> str:
 
     return text
 
+# ------------------------------------------
+# 이벤트 수집 중단
+# ------------------------------------------
+
+def get_event_collection_state():
+    return {
+        "paused": EVENT_COLLECTION_PAUSED,
+        "reason": EVENT_COLLECTION_PAUSE_REASON,
+        "paused_at": EVENT_COLLECTION_PAUSED_AT,
+        "mode": EVENT_SAVE_MODE,
+    }
+
+
+def pause_event_collection(reason: str = "manual"):
+    global EVENT_COLLECTION_PAUSED
+    global EVENT_COLLECTION_PAUSE_REASON
+    global EVENT_COLLECTION_PAUSED_AT
+
+    EVENT_COLLECTION_PAUSED = True
+    EVENT_COLLECTION_PAUSE_REASON = reason or "manual"
+    EVENT_COLLECTION_PAUSED_AT = datetime.utcnow().isoformat()
+
+    return get_event_collection_state()
+
+
+def resume_event_collection():
+    global EVENT_COLLECTION_PAUSED
+    global EVENT_COLLECTION_PAUSE_REASON
+    global EVENT_COLLECTION_PAUSED_AT
+
+    EVENT_COLLECTION_PAUSED = False
+    EVENT_COLLECTION_PAUSE_REASON = ""
+    EVENT_COLLECTION_PAUSED_AT = None
+
+    return get_event_collection_state()
+
+
+def is_event_collection_paused() -> bool:
+    return bool(EVENT_COLLECTION_PAUSED)
+
+
+# ------------------------------------------
+# 실행중인 시나리오 체크 (컨텍스트 판단)
+# ------------------------------------------
+
+def get_recent_scenario_runs_for_context(limit: int = 20):
+    try:
+        runs = list_scenario_runs(limit=limit)
+        if isinstance(runs, list):
+            return runs
+        return []
+    except Exception:
+        return []
+
+
+def should_load_scenario_context(event) -> bool:
+    event_id = _get_event_id(event)
+
+    # 도구 실행 탐지 가능성이 있는 이벤트만 컨텍스트 조회
+    if event_id in {"4688", "1", "3", "22"}:
+        return True
+
+    service_name = str(getattr(event, "service_name", "") or "").lower()
+    image = str(getattr(event, "image", "") or "").lower()
+    command_line = str(getattr(event, "command_line", "") or "").lower()
+    message = str(getattr(event, "message", "") or "").lower()
+
+    keywords = [
+        "powershell",
+        "pwsh",
+        "powerview",
+        "pingcastle",
+        "bloodhound",
+        "sharphound",
+        "ldap",
+    ]
+
+    target_text = " ".join([service_name, image, command_line, message])
+
+    return any(keyword in target_text for keyword in keywords)
+
+# ------------------------------------------
+# 저장 모드 (debug, lab, alert)
+# ------------------------------------------
 
 def should_store_event(event, bundle: dict) -> bool:
     mode = EVENT_SAVE_MODE
@@ -133,13 +226,83 @@ def get_recent_events_for_detection(conn, current_event_time: str):
     return recent_events
 
 
+def get_event_save_policy():
+    return {
+        "mode": EVENT_SAVE_MODE,
+        "important_event_ids": sorted(IMPORTANT_EVENT_IDS, key=lambda x: int(x) if str(x).isdigit() else 999999),
+        "important_event_count": len(IMPORTANT_EVENT_IDS),
+    }
+
+
+def list_events(limit: int | None = None, since_minutes: int | None = 60):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    if since_minutes is not None:
+        cutoff = datetime.utcnow() - timedelta(minutes=since_minutes)
+        cutoff_text = cutoff.isoformat()
+
+        if limit is None:
+            cur.execute("""
+                SELECT *
+                FROM events
+                WHERE event_time >= ?
+                ORDER BY id DESC
+            """, (cutoff_text,))
+        else:
+            cur.execute("""
+                SELECT *
+                FROM events
+                WHERE event_time >= ?
+                ORDER BY id DESC
+                LIMIT ?
+            """, (cutoff_text, limit))
+
+    else:
+        safe_limit = limit or 100
+        cur.execute("""
+            SELECT *
+            FROM events
+            ORDER BY id DESC
+            LIMIT ?
+        """, (safe_limit,))
+
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+
+# ===============================================
+# 이벤트 저장
+# ===============================================
+
 def save_event(event):
+    if is_event_collection_paused():
+        return {
+            "result": "skipped",
+            "reason": "event_collection_paused",
+            "stored": False,
+            "event_id": _get_event_id(event),
+            "event_time": getattr(event, "event_time", None),
+        }
+
     with SAVE_EVENT_LOCK:
         conn = get_conn()
         cur = conn.cursor()
 
         recent_events = get_recent_events_for_detection(conn, event.event_time)
-        bundle = build_event_bundle(event, recent_events=recent_events)
+
+        if should_load_scenario_context(event):
+            scenario_runs = get_recent_scenario_runs_for_context(limit=10)
+        else:
+            scenario_runs = []
+
+        bundle = build_event_bundle(
+            event,
+            recent_events=recent_events,
+            scenario_runs=scenario_runs,
+        )
 
         normalized_event_id = _get_event_id(event)
 
@@ -192,51 +355,11 @@ def save_event(event):
         return {"result": "saved"}
 
 
-def get_event_save_policy():
-    return {
-        "mode": EVENT_SAVE_MODE,
-        "important_event_ids": sorted(IMPORTANT_EVENT_IDS, key=lambda x: int(x) if str(x).isdigit() else 999999),
-        "important_event_count": len(IMPORTANT_EVENT_IDS),
-    }
 
 
-def list_events(limit: int | None = None, since_minutes: int | None = 60):
-    conn = get_conn()
-    cur = conn.cursor()
-
-    if since_minutes is not None:
-        cutoff = datetime.utcnow() - timedelta(minutes=since_minutes)
-        cutoff_text = cutoff.isoformat()
-
-        if limit is None:
-            cur.execute("""
-                SELECT *
-                FROM events
-                WHERE event_time >= ?
-                ORDER BY id DESC
-            """, (cutoff_text,))
-        else:
-            cur.execute("""
-                SELECT *
-                FROM events
-                WHERE event_time >= ?
-                ORDER BY id DESC
-                LIMIT ?
-            """, (cutoff_text, limit))
-
-    else:
-        safe_limit = limit or 100
-        cur.execute("""
-            SELECT *
-            FROM events
-            ORDER BY id DESC
-            LIMIT ?
-        """, (safe_limit,))
-
-    rows = [dict(r) for r in cur.fetchall()]
-    conn.close()
-    return rows
-
+# ===============================================
+# 이벤트 삭제 
+# ===============================================
 
 def delete_all_events():
     conn = get_conn()

@@ -47,9 +47,16 @@ def _score_value(result: Dict[str, Any]) -> int:
     except Exception:
         return 0
 
-def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+def build_event_bundle(
+    event: Any,
+    recent_events: Optional[List[Dict[str, Any]]] = None,
+    scenario_runs: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     if recent_events is None:
         recent_events = []
+
+    if scenario_runs is None:
+        scenario_runs = []
 
     event_dict = {
         "event_time": event.event_time,
@@ -103,6 +110,8 @@ def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]]
     normalized = normalize_event(event)
     if normalized.get("service_name"):
         event_dict["service_name"] = normalized["service_name"]
+    if normalized.get("group_name"):
+        event_dict["group_name"] = normalized["group_name"]
 
     # 3. 탐지 엔진 실행 (이제 모든 탐지 결과를 리스트로 수신)
     detection_results = evaluate_event(
@@ -148,7 +157,12 @@ def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]]
         detection["response_guide"] = _unique_keep_order(detection["response_guide"])
 
     # 5. 위험도 계산
-    risk = calculate_risk(event, normalized, detection)
+    risk = calculate_risk(
+        event=event,
+        normalized=normalized,
+        detection=detection,
+        scenario_runs=scenario_runs,
+    )
 
     try:
         original_event = json.loads(event.raw_json) if event.raw_json else {}

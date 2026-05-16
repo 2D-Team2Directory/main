@@ -35,6 +35,32 @@ def get_event_save_policy():
     return res.json()
 
 
+def get_event_collection_state():
+    res = requests.get(f"{BACKEND_URL}/events/collection-state", timeout=5)
+    res.raise_for_status()
+    return res.json()
+
+
+def pause_event_collection(reason: str = "dashboard_manual_pause"):
+    res = requests.post(
+        f"{BACKEND_URL}/events/collection/pause",
+        json={"reason": reason},
+        timeout=5,
+    )
+    res.raise_for_status()
+    return res.json()
+
+
+def resume_event_collection():
+    res = requests.post(
+        f"{BACKEND_URL}/events/collection/resume",
+        timeout=5,
+    )
+    res.raise_for_status()
+    return res.json()
+
+
+
 def delete_all_events():
     res = requests.delete(f"{BACKEND_URL}/events", timeout=10)
     res.raise_for_status()

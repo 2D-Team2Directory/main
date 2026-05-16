@@ -44,6 +44,118 @@ def _clean_placeholder(value: Any) -> Optional[Any]:
     return value
 
 
+# --------------------------------------
+# 그룹 이름 추출
+# --------------------------------------
+
+def _normalize_group_name(value: Any) -> Optional[str]:
+    value = _clean_placeholder(value)
+    if value is None:
+        return None
+
+    text = str(value).strip().strip('"').strip("'")
+    if not text:
+        return None
+
+    # DN 형태가 들어온 경우 CN만 추출
+    # 예: CN=Domain Admins,CN=Users,DC=lab,DC=local
+    m = re.search(r"CN=([^,]+)", text, re.IGNORECASE)
+    if m:
+        text = m.group(1).strip()
+
+    # DOMAIN\Group 또는 BUILTIN\Administrators 형태면 뒤쪽만 사용
+    if "\\" in text:
+        text = text.split("\\")[-1].strip()
+
+    # UPN/도메인 suffix 형태 방어
+    # 예: Domain Admins@lab.local
+    if "@" in text:
+        text = text.split("@")[0].strip()
+
+    # 한글/별칭 보정
+    alias_map = {
+        "administrators": "Administrators",
+        "administrator": "Administrators",
+        "관리자": "Administrators",
+        "domain admins": "Domain Admins",
+        "domain administrators": "Domain Admins",
+        "enterprise admins": "Enterprise Admins",
+        "enterprise administrators": "Enterprise Admins",
+    }
+
+    lowered = text.lower()
+    return alias_map.get(lowered, text)
+
+
+def _extract_group_name_from_message(message: Optional[str]) -> Optional[str]:
+    if not message:
+        return None
+
+    patterns = [
+        # 영문 Windows Event message
+        r"Group Name:\s*(.+)",
+        r"Account Name:\s*(.+)",
+
+        # 한글 Windows Event message 가능성
+        r"그룹 이름:\s*(.+)",
+        r"계정 이름:\s*(.+)",
+    ]
+
+    for pattern in patterns:
+        m = re.search(pattern, message, re.IGNORECASE)
+        if not m:
+            continue
+
+        value = m.group(1).strip().splitlines()[0].strip()
+        result = _normalize_group_name(value)
+        if result:
+            return result
+
+    return None
+
+
+def get_group_name(event) -> Optional[str]:
+    """
+    4728/4729/4732/4733/4756/4757 그룹 멤버 변경 이벤트에서
+    변경 대상 그룹명을 안정적으로 추출한다.
+
+    Windows Security 이벤트에서 그룹명은 보통 TargetUserName에 들어온다.
+    """
+
+    # 1) 이미 모델 필드에 group_name이 들어온 경우
+    direct = _normalize_group_name(getattr(event, "group_name", None))
+    if direct:
+        return direct
+
+    # 2) raw_json 안에서 Winlogbeat / 커스텀 구조 탐색
+    raw = _safe_json_loads(getattr(event, "raw_json", None))
+
+    candidates = [
+        ["winlog", "event_data", "TargetUserName"],
+        ["winlog", "event_data", "GroupName"],
+        ["winlog", "event_data", "TargetAccountName"],
+        ["event_data", "TargetUserName"],
+        ["event_data", "GroupName"],
+        ["event_data", "TargetAccountName"],
+        ["TargetUserName"],
+        ["GroupName"],
+        ["TargetAccountName"],
+    ]
+
+    for path in candidates:
+        value = _deep_get(raw, path)
+        result = _normalize_group_name(value)
+        if result:
+            return result
+
+    # 3) message 문자열에서 fallback 추출
+    return _extract_group_name_from_message(getattr(event, "message", None))
+
+
+# --------------------------------------
+# 프로세스 이름 추출
+# --------------------------------------
+
 def _basename_process(value: Any) -> Optional[str]:
     if not value:
         return None
@@ -157,6 +269,8 @@ def get_event_type(event_id: Optional[str]) -> str:
         "13": "registry_value_set",
         "14": "registry_value_rename",
         "22": "dns_query",
+        "4103": "powershell_module",
+        "4104": "powershell_script_block",
         "4624": "login_success",
         "4625": "login_failure",
         "4634": "logoff",
@@ -272,13 +386,13 @@ def normalize_event(event) -> dict:
     username = _clean_placeholder(getattr(event, "username", None))
     target_user = _clean_placeholder(getattr(event, "target_user", None))
     computer_name = _clean_placeholder(getattr(event, "computer_name", None))
-    group_name = _clean_placeholder(getattr(event, "group_name", None))
     source_ip = _clean_placeholder(getattr(event, "source_ip", None))
     target_host = _clean_placeholder(getattr(event, "target_host", None))
     logon_type = _clean_placeholder(getattr(event, "logon_type", None))
     event_time = _clean_placeholder(getattr(event, "event_time", None))
     event_id = _clean_placeholder(getattr(event, "event_id", None))
     service_name = get_process_service_name(event)
+    group_name = get_group_name(event)
 
     return {
         "event_type": get_event_type(event_id),

@@ -29,7 +29,7 @@ def _render_recon_run_history():
             st.rerun()
 
     try:
-        runs = get_scenario_runs(limit=20)
+        runs = get_scenario_runs(limit=10)
     except Exception as e:
         st.error(f"정찰 실행 이력 조회 실패: {e}")
         return

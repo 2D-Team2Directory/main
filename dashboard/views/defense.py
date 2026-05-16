@@ -1,14 +1,19 @@
 import pandas as pd
 import streamlit as st
-from datetime import timedelta
 
-from api_client import get_events, delete_all_events, delete_event, get_event_save_policy
 from utils import safe_json_loads, normalize_matched_rules, as_list, unique_keep_order, rule_label
 from components import severity_badge, severity_rank, render_badge_table
 from config import VICTIM_URL
 from metadata import get_event_meta
-
-
+from api_client import (
+    get_events,
+    delete_all_events,
+    delete_event,
+    get_event_save_policy,
+    get_event_collection_state,
+    pause_event_collection,
+    resume_event_collection,
+)
 
 
 
@@ -58,17 +63,14 @@ def _build_detection_summary(events):
             rule_name = rule.get("rule_name") or "-"
             key = f"{rule_id}::{rule_name}"
 
-            rule_risk = rule.get("risk") or {}
             rule_severity = str(
-                rule_risk.get("severity")
-                or risk.get("severity")
+                risk.get("severity")
                 or "none"
             ).lower()
 
             try:
                 rule_score = int(
-                    rule_risk.get("final_score")
-                    or risk.get("final_score")
+                    risk.get("final_score")
                     or 0
                 )
             except Exception:
@@ -177,6 +179,58 @@ def render_defense():
     with col_title:
         target_ip = _get_current_target_ip()
         st.subheader(f"방어 모니터링 ({target_ip})")
+
+        try:
+            collection_state = get_event_collection_state()
+        except Exception:
+            collection_state = {
+                "paused": False,
+                "reason": "-",
+                "paused_at": None,
+            }
+
+        paused = bool(collection_state.get("paused"))
+
+        state_col1, state_col2, state_col3 = st.columns([5, 2, 2])
+
+        with state_col1:
+            if paused:
+                st.warning(
+                    f"로그 수집 일시정지 중 "
+                    f"(reason: {collection_state.get('reason', '-')}, "
+                    f"paused_at: {collection_state.get('paused_at', '-')})"
+                )
+            else:
+                st.success("로그 수집 활성화 상태")
+
+        with state_col2:
+            if st.button(
+                "⏸ 수집 중단",
+                disabled=paused,
+                key="pause_event_collection",
+                help="새로 들어오는 이벤트의 저장/탐지 처리를 잠시 중단합니다.",
+            ):
+                try:
+                    pause_event_collection(reason="dashboard_manual_pause")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"수집 중단 실패: {e}")
+
+        with state_col3:
+            if st.button(
+                "▶ 수집 재개",
+                disabled=not paused,
+                key="resume_event_collection",
+                help="이벤트 저장/탐지 처리를 다시 시작합니다.",
+            ):
+                try:
+                    resume_event_collection()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"수집 재개 실패: {e}")
+
+
+
 
     with col_refresh:
         if st.button("↻", help="이벤트 새로고침"):
@@ -410,6 +464,7 @@ def render_defense():
 
             severity = risk.get("severity", "none")
             final_score = risk.get("final_score", 0)
+            ai_context = risk.get("ai_context") or {}
 
             if detected_rule_count > 1:
                 expander_title = f"🚨 ID {event_id}   |   {computer_name}   |   탐지 {detected_rule_count}개   |   {event_time}"
@@ -536,6 +591,33 @@ def render_defense():
                                     st.write(f"- {g}")
                 else:
                     st.info("매칭된 탐지 룰이 없습니다.")
+
+                if ai_context.get("enabled"):
+                    st.markdown("**AI/컨텍스트 2차 판정**")
+
+                    verdict = ai_context.get("verdict", "-")
+                    summary = ai_context.get("summary", "-")
+                    applied = ai_context.get("applied", False)
+                    related = ai_context.get("related_scenario") or {}
+                    context_reasons = ai_context.get("reasons") or []
+
+                    c_ai_1, c_ai_2, c_ai_3 = st.columns([3, 2, 5])
+                    c_ai_1.write(f"판정: **{verdict}**")
+                    c_ai_2.write(f"점수 보정 적용: **{applied}**")
+                    c_ai_3.write(f"요약: {summary}")
+
+                    if related:
+                        st.caption(
+                            f"관련 실행 이력: "
+                            f"{related.get('scenario_id', '-')} / "
+                            f"{related.get('scenario_type', '-')} / "
+                            f"{related.get('status', '-')}"
+                        )
+
+                    if context_reasons:
+                        with st.expander("컨텍스트 판단 근거", expanded=False):
+                            for reason in context_reasons:
+                                st.write(f"- {reason}")
 
                 # 기존 구조와의 호환을 위해 통합 사유/대응 가이드도 함께 출력
                 if reasons:
