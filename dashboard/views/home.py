@@ -10,12 +10,11 @@ from api_client import (
     get_events,
     get_event_save_policy,
     get_scenario_runs,
-    get_running_scenario_runs,
     get_latest_recon_summary,
 )
 from utils import safe_json_loads
 from metadata import get_event_meta
-from components import severity_rank, render_badge_table
+from components import render_badge_table, scenario_type_badge
 from views.defense import _build_detection_summary
 
 
@@ -330,7 +329,26 @@ def render_home():
                 "실행자": item.get("requested_by", "-"),
             })
 
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        home_run_df = pd.DataFrame(rows)
+
+        visible_cols = [
+            "run_id",
+            "타입",
+            "시나리오",
+            "타겟 IP",
+            "상태",
+            "실행자",
+        ]
+
+        home_run_df = home_run_df[[c for c in visible_cols if c in home_run_df.columns]]
+
+        render_badge_table(
+            rows=home_run_df.to_dict("records"),
+            columns=list(home_run_df.columns),
+            column_renderers={
+                "타입": scenario_type_badge,
+            },
+        )
 
     # 4. 실행 중 시나리오
     # with right:

@@ -615,7 +615,7 @@ def render_defense():
                 llm_called = bool(llm_triage.get("called"))
 
                 st.divider()
-                st.markdown("**LLM 2차 판단**")
+                st.markdown("#### 💭 컨텍스트 분석")
 
                 last_llm_result = st.session_state.get(f"llm_triage_result_{event_row_id}")
 
@@ -626,21 +626,21 @@ def render_defense():
                         llm_result = last_llm_result.get("llm_triage") or {}
 
                         if llm_result.get("error"):
-                            st.error("LLM 판단 요청은 처리됐지만, 모델 응답 처리 중 오류가 발생했습니다.")
+                            st.error("컨텍스트 분석 요청은 처리됐지만, 모델 응답 처리 중 오류가 발생했습니다.")
                         else:
-                            st.success("LLM 판단 결과가 갱신되었습니다.")
+                            st.success("컨텍스트 분석 결과가 갱신되었습니다.")
                     elif result_status == "skipped":
                         st.warning(
-                            f"LLM 판단이 실행되지 않았습니다: "
+                            f"컨텍스트 분석이 실행되지 않았습니다: "
                             f"{last_llm_result.get('reason', '-')}"
                         )
                     elif result_status == "frontend_error":
                         st.error(
-                            f"LLM 버튼 처리 중 오류: "
+                            f"컨텍스트 분석 버튼 처리 중 오류: "
                             f"{last_llm_result.get('message', '-')}"
                         )
                     else:
-                        st.info(f"LLM 처리 결과: {result_status}")
+                        st.info(f"컨텍스트 분석 처리 결과: {result_status}")
 
 
 
@@ -654,31 +654,31 @@ def render_defense():
                         llm_error = llm_triage.get("error")
 
                         if llm_error:
-                            st.error(f"LLM 호출 실패: **{verdict}**")
+                            st.error(f"컨텍스트 분석 호출 실패: **{verdict}**")
                             st.write(summary)
 
-                            with st.expander("LLM 오류 상세", expanded=True):
+                            with st.expander("컨텍스트 분석 오류 상세", expanded=True):
                                 st.code(str(llm_error), language="text")
                         else:
                             st.success(f"판정 완료: **{verdict}** / 신뢰도: **{confidence}**")
                             st.write(summary)
 
                     elif llm_target:
-                        st.info("이 이벤트는 LLM 2차 판단 대상입니다. 버튼을 누르면 컨텍스트 기반 분석을 실행합니다.")
+                        st.info("이 이벤트는 컨텍스트 분석 대상입니다. 버튼을 누르면 룰 탐지 결과와 실행 이력을 함께 분석합니다.")
                     else:
-                        st.caption("이 이벤트는 LLM 2차 판단 대상이 아닙니다.")
+                        st.caption("이 이벤트는 컨텍스트 분석 대상이 아닙니다.")
 
                 with llm_col2:
                     if st.button(
-                        "LLM 판단 실행",
+                        "컨텍스트 분석 실행",
                         key=f"llm_triage_{event_row_id}",
                         disabled=(not llm_target) or event_row_id is None,
-                        help="도구/정찰 관련 룰이 탐지된 이벤트만 LLM 판단을 실행합니다.",
+                        help="도구/정찰 관련 룰이 탐지된 이벤트만 추가 분석을 실행합니다.",
                     ):
                         try:
                             st.session_state[f"llm_triage_clicked_{event_row_id}"] = True
 
-                            with st.spinner("LLM이 이벤트 컨텍스트를 분석 중입니다..."):
+                            with st.spinner("이벤트 컨텍스트를 분석 중입니다..."):
                                 result = run_event_llm_triage(event_row_id)
 
                             st.session_state[f"llm_triage_result_{event_row_id}"] = result
@@ -692,7 +692,7 @@ def render_defense():
                             st.rerun()
 
                 if llm_called:
-                    with st.expander("LLM 판단 근거", expanded=False):
+                    with st.expander("컨텍스트 분석 판단 근거", expanded=False):
                         suspicious_points = llm_triage.get("suspicious_points") or []
                         benign_context = llm_triage.get("benign_context") or []
                         recommended_action = llm_triage.get("recommended_action") or "-"

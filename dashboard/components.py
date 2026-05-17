@@ -15,6 +15,12 @@ SEVERITY_ORDER = {
     "none": 0,
 }
 
+
+
+# ===========================================
+# 위험도 뱃지
+# ===========================================
+
 SEVERITY_STYLE = {
     "critical": ("#fee2e2", "#7f1d1d", "CRITICAL"),
     "high": ("#ffedd5", "#9a3412", "HIGH"),
@@ -22,7 +28,6 @@ SEVERITY_STYLE = {
     "low": ("#dcfce7", "#166534", "LOW"),
     "none": ("#f3f4f6", "#374151", "NONE"),
 }
-
 
 def normalize_severity(severity: str) -> str:
     severity = str(severity or "none").lower()
@@ -48,13 +53,115 @@ def severity_badge(severity: str) -> str:
     )
 
 
-def render_badge_table(rows, columns, badge_columns=None, right_columns=None):
+# ===========================================
+# 시나리오 타입 뱃지
+# ===========================================
+
+def normalize_scenario_type(scenario_type: str) -> str:
+    scenario_type = str(scenario_type or "general").lower().strip()
+    valid_types = {"real_attack", "detection_test", "tools", "general"}
+
+    if scenario_type in valid_types:
+        return scenario_type
+
+    return "general"
+
+
+SCENARIO_TYPE_STYLE = {
+    "real_attack": {
+        "label": "REAL ATTACK",
+        "bg": "#fee2e2",
+        "fg": "#991b1b",
+    },
+    "detection_test": {
+        "label": "DETECTION TEST",
+        "bg": "#fef3c7",
+        "fg": "#92400e",
+    },
+    "tools": {
+        "label": "TOOLS",
+        "bg": "#e0f2fe",
+        "fg": "#075985",
+    },
+    "general": {
+        "label": "GENERAL",
+        "bg": "#f3f4f6",
+        "fg": "#374151",
+    },
+}
+
+
+def scenario_type_label(scenario_type: str) -> str:
+    scenario_type = normalize_scenario_type(scenario_type)
+    return SCENARIO_TYPE_STYLE[scenario_type]["label"]
+
+
+def scenario_type_badge(scenario_type: str) -> str:
+    scenario_type = normalize_scenario_type(scenario_type)
+    style = SCENARIO_TYPE_STYLE[scenario_type]
+
+    return (
+        f'<span style="background-color:{style["bg"]}; color:{style["fg"]}; '
+        f'padding:3px 10px; border-radius:999px; font-weight:700; '
+        f'font-size:0.82rem; white-space:nowrap;">'
+        f'{style["label"]}</span>'
+    )
+
+
+# ===========================================
+# 실행중 타입 뱃지
+# ===========================================
+
+STATUS_STYLE = {
+    "running": ("#dbeafe", "#1d4ed8", "RUNNING"),
+    "success": ("#dcfce7", "#166534", "SUCCESS"),
+    "failed": ("#fee2e2", "#991b1b", "FAILED"),
+    "queued": ("#f3f4f6", "#374151", "QUEUED"),
+}
+
+
+def status_badge(status: str) -> str:
+    raw = str(status or "-").lower()
+
+    if "running" in raw:
+        key = "running"
+    elif "success" in raw:
+        key = "success"
+    elif "failed" in raw:
+        key = "failed"
+    elif "queued" in raw:
+        key = "queued"
+    else:
+        key = "queued"
+
+    bg, fg, label = STATUS_STYLE[key]
+
+    return (
+        f'<span style="background-color:{bg}; color:{fg}; '
+        f'padding:3px 10px; border-radius:999px; font-weight:700; '
+        f'font-size:0.82rem; white-space:nowrap;">'
+        f'{label}</span>'
+    )
+
+
+
+def render_badge_table(
+    rows,
+    columns,
+    badge_columns=None,
+    right_columns=None,
+    column_renderers=None,
+):
     """
     st.dataframe 대신 HTML table로 출력하기 위한 공통 함수.
-    badge_columns에 들어간 컬럼은 severity_badge()로 렌더링한다.
+
+    - badge_columns: 기본 severity_badge()를 적용할 컬럼
+    - column_renderers: 컬럼별 커스텀 렌더러
+      예: {"타입": scenario_type_badge, "위험도": severity_badge}
     """
     badge_columns = set(badge_columns or [])
     right_columns = set(right_columns or [])
+    column_renderers = column_renderers or {}
 
     if not rows:
         st.info("표시할 데이터가 없습니다.")
@@ -68,7 +175,7 @@ def render_badge_table(rows, columns, badge_columns=None, right_columns=None):
 
     for col in columns:
         align = "right" if col in right_columns else "left"
-        if col in badge_columns:
+        if col in badge_columns or col in column_renderers:
             align = "center"
 
         table_html += (
@@ -89,7 +196,10 @@ def render_badge_table(rows, columns, badge_columns=None, right_columns=None):
             value = row.get(col, "-")
             align = "right" if col in right_columns else "left"
 
-            if col in badge_columns:
+            if col in column_renderers:
+                cell = column_renderers[col](value)
+                align = "center"
+            elif col in badge_columns:
                 cell = severity_badge(value)
                 align = "center"
             else:
@@ -108,8 +218,6 @@ def render_badge_table(rows, columns, badge_columns=None, right_columns=None):
     """
 
     st.markdown(table_html, unsafe_allow_html=True)
-
-
 
 
 

@@ -8,7 +8,7 @@ import streamlit.components.v1 as components
 
 from api_client import get_scenarios, get_latest_recon_summary, get_latest_recon_result, get_scenario_runs, get_scenario_log
 from utils import is_recon_run
-from components import render_scenario_card
+from components import render_scenario_card, render_badge_table, scenario_type_badge, status_badge
 from config import ATTACK_REQUESTED_BY, VICTIM_URL
 from views.recon_bloodhound import render_bloodhound
 from metadata import get_recon_recommendation
@@ -60,6 +60,7 @@ def _render_recon_run_history():
 
         history_rows.append({
             "run_id": item.get("run_id", "-"),
+            "타입": item.get("scenario_type", "tools"),
             "도구": item.get("scenario_id", "-"),
             "대상 IP": item.get("target_ip", "-"),
             "상태": display_status,
@@ -70,22 +71,14 @@ def _render_recon_run_history():
 
     history_df = pd.DataFrame(history_rows)
 
-    def highlight_status(val):
-        text = str(val)
-        if "running" in text:
-            return "background-color: #dbeafe; color: #1d4ed8; font-weight: bold;"
-        elif "success" in text:
-            return "background-color: #ecfdf5; color: #166534; font-weight: bold;"
-        elif "failed" in text:
-            return "background-color: #fef2f2; color: #991b1b; font-weight: bold;"
-        return ""
-
-    styled_df = history_df.style.map(
-        highlight_status,
-        subset=["상태"]
+    render_badge_table(
+        rows=history_df.to_dict("records"),
+        columns=list(history_df.columns),
+        column_renderers={
+            "타입": scenario_type_badge,
+            "상태": status_badge,
+        },
     )
-
-    st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
     st.markdown("### 정찰 실행 로그 확인")
 
