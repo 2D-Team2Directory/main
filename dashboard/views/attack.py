@@ -3,7 +3,7 @@ import streamlit as st
 
 from config import ATTACK_REQUESTED_BY, VICTIM_URL
 from api_client import get_scenarios, get_scenario_runs, get_scenario_log
-from components import render_scenario_card
+from components import render_scenario_card, render_badge_table, scenario_type_badge, status_badge
 from utils import is_recon_run
 
 
@@ -38,7 +38,7 @@ def _render_run_history():
             st.rerun()
 
     try:
-        history_data = get_scenario_runs(limit=20)
+        history_data = get_scenario_runs(limit=10)
         history_data = [
             item for item in history_data
             if not is_recon_run(item)
@@ -82,21 +82,14 @@ def _render_run_history():
 
     history_df = pd.DataFrame(history_rows)
 
-    def highlight_status(val):
-        if "running" in str(val):
-            return "background-color: #FFC19E; color: #6F310E; font-weight: bold;"
-        elif "success" in str(val):
-            return "background-color: #ecfdf5; color: #166534;"
-        elif "failed" in str(val):
-            return "background-color: #fef2f2; color: #991b1b;"
-        return ""
-
-    styled_df = history_df.style.map(
-        highlight_status,
-        subset=["상태"]
+    render_badge_table(
+        rows=history_df.to_dict("records"),
+        columns=list(history_df.columns),
+        column_renderers={
+            "타입": scenario_type_badge,
+            "상태": status_badge,
+        },
     )
-
-    st.dataframe(styled_df, use_container_width=True)
 
     st.markdown("### 실행 로그 확인")
 

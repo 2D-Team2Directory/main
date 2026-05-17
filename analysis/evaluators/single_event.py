@@ -1,9 +1,6 @@
 from typing import Any, Dict, Optional
 from risk_engine import calculate_risk
 
-
-
-
 def _get_field_value(field: str, event_dict: Dict[str, Any], normalized: Dict[str, Any]) -> Any:
     # 우선순위: normalized > event_dict (태우님이 정규화해주는 데이터를 우선 신뢰)
     if field in normalized:
@@ -102,14 +99,15 @@ def evaluate_single_event_rule(
 
     # 만약 룰 자체가 없거나 매칭에 실패한 경우
     if not rule or not is_matched:
-        # risk_engine에서 처리 가능한 기본 이벤트 타입(정황 분석 대상)인지 확인
-        event_type = normalized.get("event_type")
-        if event_type in ["login_failure", "login_success"]:
-            # 룰 매칭은 실패했으나 리스크 엔진으로 넘어가도록 통과 처리 (기본 점수 0으로 세팅)
-            base_score = 0
-        else:
-            # 정황 분석 대상도 아니면 기존처럼 탐지 제외(None)
-            return None
+        # # risk_engine에서 처리 가능한 기본 이벤트 타입(정황 분석 대상)인지 확인
+        # event_type = normalized.get("event_type")
+        # if event_type in ["login_failure", "login_success"]:
+        #     # 룰 매칭은 실패했으나 리스크 엔진으로 넘어가도록 통과 처리 (기본 점수 0으로 세팅)
+        #     base_score = 0
+        # else:
+        #     # 정황 분석 대상도 아니면 기존처럼 탐지 제외(None)
+        #     return None
+        return None # 매칭 실패시마다 계속 반복될 수 있음 / risk_engine 쪽 처리로 변경
     else:
         # 룰 매칭 성공 시 rule에 정의된 점수 적용
         base_score = int(rule.get("score", 0))
@@ -118,18 +116,18 @@ def evaluate_single_event_rule(
     rule_id = rule.get("rule_id", "N/A") if is_matched else "N/A"
     rule_name = rule.get("name", "Unknown") if is_matched else "Context-based Baseline Monitoring"
 
-    detection_ctx = {
-        "rule_id": rule_id,
-        "rule_name": rule_name,
-        "rule_score": base_score
-    }
+    # detection_ctx = {
+    #     "rule_id": rule_id,
+    #     "rule_name": rule_name,
+    #     "rule_score": base_score
+    # }
 
     # risk_engine을 호출하여 컨텍스트 가중치가 적용된 점수와 severity를 계산
-    risk_result = calculate_risk(event_dict, normalized, detection_ctx)
+    # risk_result = calculate_risk(event_dict, normalized, detection_ctx)
     
     # 정황 분석으로 걸러진 데이터인데 최종 severity가 'none' 혹은 'low'면서 점수가 0점이면 최종 리턴에서 제외 (노이즈 방지)
-    if not is_matched and risk_result["final_score"] == 0:
-        return None
+    # if not is_matched and risk_result["final_score"] == 0:
+    #     return None
 
     user = (
         normalized.get("username")
@@ -149,17 +147,17 @@ def evaluate_single_event_rule(
     
     # 4. 최종 탐지 객체 반환 (DB 저장 형태와 일치)
     return {
-        "detected": is_matched,  # 시그니처 룰 매칭 여부 기록
+        # "detected": is_matched,  # 시그니처 룰 매칭 여부 기록
         "rule_id": rule_id,
         "rule_name": rule_name,
-        "reason": [reason],
-        "attack_tactic": rule.get("attack", {}).get("tactic") if is_matched else "Contextual Monitoring",
-        "attack_technique": rule.get("attack", {}).get("technique") if is_matched else "N/A",
-        "response_guide": rule.get("response_guide", []) if is_matched else ["정황 분석에 따른 상위 위험도 계정/시간대 확인 필요"],
+        "rule_score": base_score,
+        "reason": reason,
+        "attack_tactic": rule.get("attack", {}).get("tactic"),
+        "attack_technique": rule.get("attack", {}).get("technique"),
+        "response_guide": rule.get("response_guide", []),
         "risk": {
-            "base_score": risk_result["base_score"],
-            "weight": risk_result["weight"],
-            "final_score": risk_result["final_score"],
-            "severity": risk_result["severity"],
+            "base_score": base_score,
+            "final_score": base_score,
+            "severity": rule.get("severity", "low"),
         },
     }

@@ -1,5 +1,4 @@
 from fastapi import FastAPI,  HTTPException, Body
-from typing import List
 
 from app.db import init_db
 from app.models import EventIn, ScenarioRunRequest
@@ -9,6 +8,10 @@ from app.services.event_service import (
     delete_all_events,
     delete_event_by_id,
     get_event_save_policy,
+    get_event_collection_state,
+    pause_event_collection,
+    resume_event_collection,
+    run_llm_triage_for_event
 )
 from app.services.scenario_service import (
     run_scenario,
@@ -50,6 +53,32 @@ def get_events(limit: int | None = None, since_minutes: int | None = 60):
 @app.get("/events/save-policy")
 def event_save_policy():
     return get_event_save_policy()
+
+
+@app.get("/events/collection-state")
+def event_collection_state():
+    return get_event_collection_state()
+
+
+@app.post("/events/collection/pause")
+def pause_events_collection(payload: dict = Body(default={})):
+    reason = payload.get("reason", "manual_pause")
+    return pause_event_collection(reason=reason)
+
+
+@app.post("/events/collection/resume")
+def resume_events_collection():
+    return resume_event_collection()
+
+
+@app.post("/events/{event_row_id}/llm-triage")
+def llm_triage_event(event_row_id: int):
+    result = run_llm_triage_for_event(event_row_id)
+
+    if result.get("result") == "not_found":
+        raise HTTPException(status_code=404, detail="event not found")
+
+    return result
 
 
 @app.delete("/events")

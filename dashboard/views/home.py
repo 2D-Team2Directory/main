@@ -10,12 +10,11 @@ from api_client import (
     get_events,
     get_event_save_policy,
     get_scenario_runs,
-    get_running_scenario_runs,
     get_latest_recon_summary,
 )
 from utils import safe_json_loads
 from metadata import get_event_meta
-from components import severity_rank, render_badge_table
+from components import render_badge_table, scenario_type_badge
 from views.defense import _build_detection_summary
 
 
@@ -42,7 +41,7 @@ def _render_powerview_home_card():
         summary = get_latest_recon_summary("powerview")
     except Exception as e:
         with st.container(border=True):
-            st.markdown("**PowerView**")
+            st.markdown("#### 🔍 PowerView")
             st.error(f"조회 실패: {e}")
         return
 
@@ -52,21 +51,21 @@ def _render_powerview_home_card():
 
     if summary.get("result") == "error":
         with st.container(border=True):
-            st.markdown("**PowerView**")
+            st.markdown("#### 🔍 PowerView")
             st.error(summary.get("message", "조회 실패"))
         return
 
     with st.container(border=True):
-        st.markdown("**PowerView**")
+        st.markdown("#### 🔍 PowerView")
         st.caption("AD 객체/취약 설정 요약")
 
         c1, c2 = st.columns(2)
-        c1.metric("사용자", _safe_value(summary, "total_users"))
-        c2.metric("컴퓨터", _safe_value(summary, "total_computers"))
+        c1.metric("👤 사용자", _safe_value(summary, "total_users"))
+        c2.metric("🖥️ 컴퓨터", _safe_value(summary, "total_computers"))
 
         c3, c4 = st.columns(2)
-        c3.metric("SPN 계정", _safe_value(summary, "spn_users_count"))
-        c4.metric("NoPreAuth", _safe_value(summary, "no_preauth_users_count"))
+        c3.metric("🎯 SPN 계정", _safe_value(summary, "spn_users_count"))
+        c4.metric("🔓 NoPreAuth", _safe_value(summary, "no_preauth_users_count"))
 
         st.write(f"Domain Admins: **{_safe_value(summary, 'domain_admins_count')}**")
         st.write(f"DnsAdmins: **{_safe_value(summary, 'dns_admins_count')}**")
@@ -78,7 +77,7 @@ def _render_pingcastle_home_card():
         summary = get_latest_recon_summary("pingcastle")
     except Exception as e:
         with st.container(border=True):
-            st.markdown("**PingCastle**")
+            st.markdown("#### 🩺 PingCastle")
             st.error(f"조회 실패: {e}")
         return
 
@@ -88,17 +87,17 @@ def _render_pingcastle_home_card():
 
     if summary.get("result") == "error":
         with st.container(border=True):
-            st.markdown("**PingCastle**")
+            st.markdown("#### 🩺 PingCastle")
             st.error(summary.get("message", "조회 실패"))
         return
 
     with st.container(border=True):
-        st.markdown("**PingCastle**")
+        st.markdown("#### 🩺 PingCastle")
         st.caption("AD HealthCheck 점수 · 낮을수록 양호")
 
         c1, c2 = st.columns(2)
-        c1.metric("Global Score", _safe_value(summary, "global_score", "-"))
-        c2.metric("Anomaly", _safe_value(summary, "anomaly_score", "-"))
+        c1.metric("✒️ Global Score", _safe_value(summary, "global_score", "-"))
+        c2.metric("⚠️ Anomaly", _safe_value(summary, "anomaly_score", "-"))
 
         c3, c4 = st.columns(2)
         c3.metric("Privileged", _safe_value(summary, "privileged_group_score", "-"))
@@ -234,12 +233,12 @@ def _render_bloodhound_home_card():
         summary = _bloodhound_home_summary(coll_dir)
     except Exception as e:
         with st.container(border=True):
-            st.markdown("**BloodHound**")
+            st.markdown("#### 🔬 BloodHound")
             st.error(f"분석 실패: {e}")
         return
 
     with st.container(border=True):
-        st.markdown("**BloodHound**")
+        st.markdown("#### 🔬 BloodHound")
         st.caption("관계 기반 위험 요약")
 
         c1, c2 = st.columns(2)
@@ -262,7 +261,7 @@ def render_home():
     st.title("🧑‍💻 2D   |   AD 공격/방어 시뮬레이션 랩")
     st.divider()
 
-    st.subheader("홈")
+    st.markdown("# 홈")
 
     # 1. 데이터 조회
     try:
@@ -298,9 +297,10 @@ def render_home():
     high_count = defense_metrics["high_or_more_count"]
 
     # 2. 상단 상태 카드
-    c1, c2, c3, c4, c5 = st.columns(5)
+    # c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4 = st.columns(4)
 
-    c1.metric("Backend", "🟢 정상" if backend_ok else "🔴 오류")
+    c1.metric("⚙️ Backend", "🟢 정상" if backend_ok else "🔴 오류")
     c2.metric("📥 최근 이벤트", len(events))
     c2.caption(f"최근 1시간 |\n수집 모드: `{save_mode}`")
     c3.metric("🚨 탐지 이벤트", detected_count)
@@ -329,7 +329,26 @@ def render_home():
                 "실행자": item.get("requested_by", "-"),
             })
 
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        home_run_df = pd.DataFrame(rows)
+
+        visible_cols = [
+            "run_id",
+            "타입",
+            "시나리오",
+            "타겟 IP",
+            "상태",
+            "실행자",
+        ]
+
+        home_run_df = home_run_df[[c for c in visible_cols if c in home_run_df.columns]]
+
+        render_badge_table(
+            rows=home_run_df.to_dict("records"),
+            columns=list(home_run_df.columns),
+            column_renderers={
+                "타입": scenario_type_badge,
+            },
+        )
 
     # 4. 실행 중 시나리오
     # with right:

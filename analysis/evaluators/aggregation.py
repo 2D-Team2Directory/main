@@ -11,8 +11,19 @@ def _get_field_value(field: str, event_dict: Dict[str, Any], normalized: Dict[st
 def _match_conditions(match: Dict[str, Any], event_dict: Dict[str, Any], normalized: Dict[str, Any]) -> bool:
     for field, expected in match.items():
         actual = _get_field_value(field, event_dict, normalized)
-        if actual != expected:
+
+        if actual is None:
             return False
+
+        actual_str = str(actual).lower()
+        expected_str = str(expected).lower()
+
+        if actual_str.startswith("%{") and actual_str.endswith("}"):
+            return False
+
+        if actual_str != expected_str:
+            return False
+
     return True
 
 
@@ -146,6 +157,7 @@ def evaluate_aggregation_rule(
         "detected": True,
         "rule_id": rule.get("rule_id"),
         "rule_name": rule.get("name"),
+        "rule_score": base_score,
         "reason": [reason_text],
         "attack_tactic": rule.get("attack", {}).get("tactic"),
         "attack_technique": rule.get("attack", {}).get("technique"),

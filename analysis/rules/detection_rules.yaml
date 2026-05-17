@@ -12,11 +12,6 @@ rules:
       count_gte: 10
     severity: medium
     score: 40 # 50 -> 40으로 소폭 하향 (일반 계정 잦은 오입력 고려)
-    score_modifiers:
-      - field: is_admin_account
-        op: eq
-        value: true
-        add: 30 # 관리자 계정일 때의 가중치를 높여 차별화 (+20 -> +30)
     attack:
       tactic: Credential Access
       technique: T1110
@@ -33,11 +28,6 @@ rules:
       is_admin_account: true
     severity: low
     score: 20 # 기본 로그인은 30->20점으로 낮춤
-    score_modifiers:
-      - field: logon_type
-        op: eq
-        value: "10" # RDP 원격 접속을 통한 관리자 로그인이면 위험도 폭증
-        add: 40 
     attack:
       tactic: Initial Access
       technique: Valid Accounts
@@ -727,7 +717,7 @@ rules:
       - 원격에서 네트워크 공유를 통한 비밀번호 무차별 대입 공격 의심
       - 소스 IP(source_ip)에 대한 즉각적인 접근 제한 및 조사 실시
 
-      # RULE-071: 특권 권한 할당 (Special Privileges)
+  # RULE-071: 특권 권한 할당 (Special Privileges)
   - rule_id: RULE-071
     name: 관리자급 특권 권한 할당 탐지
     type: single_event
@@ -816,3 +806,204 @@ rules:
     response_guide:
       - 외부 또는 내부망에서 관리자 권한 탈취를 위해 무차별 대입 중인지 확인
       - 대상 관리자 계정의 상태(잠금 등) 확인
+
+
+  # 정찰 도구 탐지 룰
+  - rule_id: RULE-101
+    name: Kerberos AS-REQ 급증 - 정찰 도구 의심
+    enabled: true
+    type: aggregation
+    match:
+      event_id: "4768"
+    group_by: [computer_name, username]
+    window:
+      minutes: 2
+    threshold:
+      count_gte: 10
+    severity: medium
+    score: 55
+    attack:
+      tactic: Discovery
+      technique: T1087
+    response_guide:
+      - 짧은 시간 내 Kerberos AS 요청이 반복 발생했습니다.
+      - PingCastle/AD 정찰 도구 실행 이력과 시간대를 비교하세요.
+      - 승인되지 않은 경우 계정 열거 또는 자동화된 도메인 조회 가능성을 확인하세요.
+
+  - rule_id: RULE-102
+    name: PingCastle 실행 의심 - Windows 4688
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4688"
+    contains_any:
+      message:
+        - "PingCastle.exe"
+        - "PingCastle"
+        - "healthcheck"
+        - "--healthcheck"
+        - "ad_hc_"
+    severity: medium
+    score: 55
+    attack:
+      tactic: Discovery
+      technique: T1482
+    response_guide:
+      - PingCastle HealthCheck 실행 흔적입니다.
+      - 동일 시간대 정찰 도구 실행 이력과 비교하세요.
+      - 승인되지 않은 실행이면 실행 계정과 대상 도메인을 확인하세요.
+
+  - rule_id: RULE-103
+    name: PingCastle PowerShell ScriptBlock 실행 의심
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4104"
+    contains_any:
+      message:
+        - "PingCastle.exe"
+        - "PingCastle"
+        - "healthcheck"
+        - "--healthcheck"
+        - "ad_hc_"
+    severity: medium
+    score: 60
+    attack:
+      tactic: Discovery
+      technique: T1482
+    response_guide:
+      - PowerShell ScriptBlock 로그에서 PingCastle 실행 문자열이 확인되었습니다.
+      - 승인된 정찰 도구 실행인지 확인하세요.
+      - 동일 시간대 Kerberos 이벤트 급증 여부를 함께 확인하세요.
+
+  - rule_id: RULE-104
+    name: AD 정찰성 LDAP 연결 의심
+    enabled: true
+    type: aggregation
+    match:
+      event_id: "3"
+      destination_port: "389"
+    group_by: [computer_name, image]
+    window:
+      minutes: 2
+    threshold:
+      count_gte: 10
+    severity: medium
+    score: 55
+    attack:
+      tactic: Discovery
+      technique: Account Discovery / Domain Trust Discovery
+    response_guide:
+      - LDAP 연결을 발생시킨 프로세스 확인
+      - 동일 시간대 정찰 도구 실행 이력 확인
+      - 승인되지 않은 연결이면 AD 정보 수집 가능성 확인
+
+  - rule_id: RULE-105
+    name: AD 정찰성 LDAPS 연결 의심
+    enabled: true
+    type: aggregation
+    match:
+      event_id: "3"
+      destination_port: "636"
+    group_by: [computer_name, image]
+    window:
+      minutes: 2
+    threshold:
+      count_gte: 10
+    severity: medium
+    score: 55
+    attack:
+      tactic: Discovery
+      technique: Account Discovery / Domain Trust Discovery
+    response_guide:
+      - LDAPS 연결을 발생시킨 프로세스 확인
+      - BloodHound/PingCastle 실행 이력과 비교
+      - 승인되지 않은 연결이면 AD 정찰 가능성 확인
+
+  - rule_id: RULE-106
+    name: WinRM 원격 세션 내 whoami 실행
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4688"
+      service_name: "whoami.exe"
+    contains_any:
+      message:
+        - "wsmprovhost.exe"
+    severity: medium
+    score: 45
+    attack:
+      tactic: Discovery
+      technique: T1033
+    response_guide:
+      - WinRM 원격 세션에서 whoami.exe가 실행된 이벤트입니다.
+      - 동일 시간대 PowerView 정찰 시나리오 실행 이력과 비교하세요.
+      - 승인되지 않은 실행이면 원격 PowerShell 세션 사용 여부를 확인하세요.
+
+  - rule_id: RULE-107
+    name: WinRM 원격 세션 하위 프로세스 생성
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4688"
+    contains_any:
+      message:
+        - "생성자 프로세스 이름:\tC:\\Windows\\System32\\wsmprovhost.exe"
+        - "ParentProcessName"
+        - "wsmprovhost.exe"
+    severity: medium
+    score: 55
+    attack:
+      tactic: Execution
+      technique: T1059.001
+    response_guide:
+      - WinRM/PowerShell Remoting 세션에서 생성된 하위 프로세스입니다.
+      - 실행 계정, 대상 호스트, 동일 시간대 정찰/공격 시나리오 실행 이력을 확인하세요.
+      - 승인되지 않은 경우 원격 명령 실행 가능성으로 분류하세요.
+
+  - rule_id: RULE-108
+    name: BloodHound 수집 도구 실행 의심 - Windows 4688
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4688"
+    contains_any:
+      message:
+        - "bloodhound-python"
+        - "sharphound"
+        - "sharphound.exe"
+        - "collectionmethod"
+        - "-collectionmethod"
+    severity: high
+    score: 75
+    attack:
+      tactic: Discovery
+      technique: T1087 / T1069 / T1482
+    response_guide:
+      - Windows 4688 로그에서 BloodHound/SharpHound 실행 흔적 확인
+      - 승인된 tools 실행 이력과 비교
+
+  - rule_id: RULE-109
+    name: PowerView ScriptBlock 실행 의심
+    enabled: true
+    type: single_event
+    match:
+      event_id: "4104"
+    contains_any:
+      message:
+        - "Get-DomainUser"
+        - "Get-DomainGroup"
+        - "Get-DomainComputer"
+        - "Get-DomainGroupMember"
+        - "Find-InterestingDomainAcl"
+        - "Get-DomainTrust"
+        - "PowerView"
+    severity: high
+    score: 75
+    attack:
+      tactic: Discovery
+      technique: T1087 / T1069 / T1018
+    response_guide:
+      - PowerShell ScriptBlock 로그에서 PowerView 함수 실행이 확인되었습니다.
+      - 승인된 정찰 시나리오 실행 여부를 확인하세요.
+      - 실행 계정과 대상 도메인을 확인하세요.

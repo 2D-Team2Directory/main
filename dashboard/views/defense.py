@@ -1,14 +1,20 @@
 import pandas as pd
 import streamlit as st
-from datetime import timedelta
 
-from api_client import get_events, delete_all_events, delete_event, get_event_save_policy
 from utils import safe_json_loads, normalize_matched_rules, as_list, unique_keep_order, rule_label
 from components import severity_badge, severity_rank, render_badge_table
 from config import VICTIM_URL
 from metadata import get_event_meta
-
-
+from api_client import (
+    get_events,
+    delete_all_events,
+    delete_event,
+    get_event_save_policy,
+    get_event_collection_state,
+    pause_event_collection,
+    resume_event_collection,
+    run_event_llm_triage,
+)
 
 
 
@@ -21,6 +27,55 @@ def _get_current_target_ip():
     )
 
     return f"대상 IP: {target_ip}"
+
+# ==========================================
+# 컨텍스트 LLM 
+# ==========================================
+
+LLM_TARGET_RULE_IDS = {
+    "RULE-063",
+    "RULE-064",
+    "RULE-065",
+
+    "RULE-101",
+    "RULE-102",
+    "RULE-103",
+    "RULE-104",
+    "RULE-105",
+    "RULE-106",
+    "RULE-107",
+    "RULE-108",
+    "RULE-109",
+}
+
+
+def _matched_rule_ids(detection: dict) -> set[str]:
+    result = set()
+
+    if detection.get("rule_id"):
+        result.add(str(detection.get("rule_id")))
+
+    for rule in normalize_matched_rules(detection):
+        rule_id = rule.get("rule_id")
+        if rule_id:
+            result.add(str(rule_id))
+
+    return result
+
+
+def _is_llm_triage_target(detection: dict, risk: dict) -> bool:
+    if not detection.get("detected"):
+        return False
+
+    matched_rule_ids = _matched_rule_ids(detection)
+
+    # 범용 4688 룰인 RULE-041 단독은 제외.
+    # 도구/정찰 관련 룰이 있을 때만 LLM 분석 버튼 활성화.
+    if not (matched_rule_ids & LLM_TARGET_RULE_IDS):
+        return False
+
+    return True
+
 
 
 def _build_detection_summary(events):
@@ -58,17 +113,14 @@ def _build_detection_summary(events):
             rule_name = rule.get("rule_name") or "-"
             key = f"{rule_id}::{rule_name}"
 
-            rule_risk = rule.get("risk") or {}
             rule_severity = str(
-                rule_risk.get("severity")
-                or risk.get("severity")
+                risk.get("severity")
                 or "none"
             ).lower()
 
             try:
                 rule_score = int(
-                    rule_risk.get("final_score")
-                    or risk.get("final_score")
+                    risk.get("final_score")
                     or 0
                 )
             except Exception:
@@ -137,7 +189,7 @@ def _render_detection_summary(events):
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("탐지 이벤트", metrics["detected_event_count"])
     m2.metric("룰 매칭 수", metrics["total_rule_hits"])
-    m3.metric("High 이상", metrics["high_or_more_count"])
+    m3.metric("High 이상 룰 매칭 수", metrics["high_or_more_count"])
     m4.metric("최고 점수", metrics["max_event_score"])
 
     if not rows:
@@ -172,15 +224,72 @@ def render_defense():
     st.title("🛡️ 방어")
     st.divider()
 
-    col_title, col_refresh, col_rest = st.columns([6, 0.5, 3.5])
+    # col_title, col_refresh, col_rest = st.columns([6, 0.5, 3.5])
 
-    with col_title:
-        target_ip = _get_current_target_ip()
-        st.subheader(f"방어 모니터링 ({target_ip})")
+    # with col_title:
+    target_ip = _get_current_target_ip()
+    st.subheader(f"방어 모니터링 ({target_ip})")
 
-    with col_refresh:
-        if st.button("↻", help="이벤트 새로고침"):
-            st.rerun()
+    try:
+        collection_state = get_event_collection_state()
+    except Exception:
+        collection_state = {
+            "paused": False,
+            "reason": "-",
+            "paused_at": None,
+        }
+
+    paused = bool(collection_state.get("paused"))
+
+    state_col1, state_col2, state_col3, state_col4 = st.columns([5.5, 1.5, 1.5, 1.5])
+
+    with state_col1:
+        if paused:
+            st.warning(
+                f"로그 수집 일시정지 중 "
+                f"(reason: {collection_state.get('reason', '-')}, "
+                f"paused_at: {collection_state.get('paused_at', '-')})"
+            )
+        else:
+            st.success("로그 수집 활성화 상태")
+
+    with state_col2:
+        if st.button(
+            "⏸ 수집 중단",
+            disabled=paused,
+            key="pause_event_collection",
+            help="새로 들어오는 이벤트의 저장/탐지 처리를 잠시 중단합니다.",
+        ):
+            try:
+                pause_event_collection(reason="dashboard_manual_pause")
+                st.rerun()
+            except Exception as e:
+                st.error(f"수집 중단 실패: {e}")
+
+    with state_col3:
+        if st.button(
+            "▶  수집 재개",
+            disabled=not paused,
+            key="resume_event_collection",
+            help="이벤트 저장/탐지 처리를 다시 시작합니다.",
+        ):
+            try:
+                resume_event_collection()
+                st.rerun()
+            except Exception as e:
+                st.error(f"수집 재개 실패: {e}")
+
+    with state_col4:
+        if st.button(
+            "↻  새로고침",
+            help="이벤트 로그 목록을 새로고침합니다.",
+        ):
+            try:
+                st.rerun()
+            except Exception as e:
+                st.error(f"새로 고침 실패: {e}")
+
+        
 
     try:
         data = get_events(since_minutes=60)
@@ -216,6 +325,7 @@ def render_defense():
                     event_id = str(item.get("event_id", "-"))
                     normalized = safe_json_loads(item.get("normalized_json"))
                     event_type = normalized.get("event_type", "unknown")
+
                     meta = get_event_meta(event_id, event_type)
 
                     summary_rows.append({
@@ -398,15 +508,14 @@ def render_defense():
             is_admin = normalized.get("is_admin_account", False)
             is_off_hours = normalized.get("is_off_hours", False)
 
+            meta = get_event_meta(str(event_id), event_type)
+
             detected = detection.get("detected", False)
             matched_rules = normalize_matched_rules(detection)
             detected_rule_count = len(matched_rules)
             all_rule_labels = [rule_label(rule) for rule in matched_rules]
             representative_rule_name = detection.get("rule_name") or "-"
             rule_summary = ", ".join(all_rule_labels) if all_rule_labels else representative_rule_name
-
-            reasons = unique_keep_order(as_list(detection.get("reason")))
-            response_guide = unique_keep_order(as_list(detection.get("response_guide")))
 
             severity = risk.get("severity", "none")
             final_score = risk.get("final_score", 0)
@@ -497,6 +606,116 @@ def render_defense():
                         st.markdown("**메시지**")
                         st.write(message)
 
+
+                # -----------------------------
+                # LLM 2차 판단 블록
+                # -----------------------------
+                llm_triage = risk.get("llm_triage") or {}
+                llm_target = _is_llm_triage_target(detection, risk)
+                llm_called = bool(llm_triage.get("called"))
+
+                st.divider()
+                st.markdown("#### 💭 컨텍스트 분석")
+
+                last_llm_result = st.session_state.get(f"llm_triage_result_{event_row_id}")
+
+                if last_llm_result:
+                    result_status = last_llm_result.get("result")
+
+                    if result_status == "updated":
+                        llm_result = last_llm_result.get("llm_triage") or {}
+
+                        if llm_result.get("error"):
+                            st.error("컨텍스트 분석 요청은 처리됐지만, 모델 응답 처리 중 오류가 발생했습니다.")
+                        else:
+                            st.success("컨텍스트 분석 결과가 갱신되었습니다.")
+                    elif result_status == "skipped":
+                        st.warning(
+                            f"컨텍스트 분석이 실행되지 않았습니다: "
+                            f"{last_llm_result.get('reason', '-')}"
+                        )
+                    elif result_status == "frontend_error":
+                        st.error(
+                            f"컨텍스트 분석 버튼 처리 중 오류: "
+                            f"{last_llm_result.get('message', '-')}"
+                        )
+                    else:
+                        st.info(f"컨텍스트 분석 처리 결과: {result_status}")
+
+
+
+                llm_col1, llm_col2 = st.columns([7, 3])
+
+                with llm_col1:
+                    if llm_called:
+                        verdict = llm_triage.get("verdict", "-")
+                        confidence = llm_triage.get("confidence", 0)
+                        summary = llm_triage.get("summary", "-")
+                        llm_error = llm_triage.get("error")
+
+                        if llm_error:
+                            st.error(f"컨텍스트 분석 호출 실패: **{verdict}**")
+                            st.write(summary)
+
+                            with st.expander("컨텍스트 분석 오류 상세", expanded=True):
+                                st.code(str(llm_error), language="text")
+                        else:
+                            st.success(f"판정 완료: **{verdict}** / 신뢰도: **{confidence}**")
+                            st.write(summary)
+
+                    elif llm_target:
+                        st.info("이 이벤트는 컨텍스트 분석 대상입니다. 버튼을 누르면 룰 탐지 결과와 실행 이력을 함께 분석합니다.")
+                    else:
+                        st.caption("이 이벤트는 컨텍스트 분석 대상이 아닙니다.")
+
+                with llm_col2:
+                    if st.button(
+                        "컨텍스트 분석 실행",
+                        key=f"llm_triage_{event_row_id}",
+                        disabled=(not llm_target) or event_row_id is None,
+                        help="도구/정찰 관련 룰이 탐지된 이벤트만 추가 분석을 실행합니다.",
+                    ):
+                        try:
+                            st.session_state[f"llm_triage_clicked_{event_row_id}"] = True
+
+                            with st.spinner("이벤트 컨텍스트를 분석 중입니다..."):
+                                result = run_event_llm_triage(event_row_id)
+
+                            st.session_state[f"llm_triage_result_{event_row_id}"] = result
+                            st.rerun()
+
+                        except Exception as e:
+                            st.session_state[f"llm_triage_result_{event_row_id}"] = {
+                                "result": "frontend_error",
+                                "message": str(e),
+                            }
+                            st.rerun()
+
+                if llm_called:
+                    with st.expander("컨텍스트 분석 판단 근거", expanded=False):
+                        suspicious_points = llm_triage.get("suspicious_points") or []
+                        benign_context = llm_triage.get("benign_context") or []
+                        recommended_action = llm_triage.get("recommended_action") or "-"
+
+                        st.markdown("**의심 근거**")
+                        if suspicious_points:
+                            for point in suspicious_points:
+                                st.write(f"- {point}")
+                        else:
+                            st.write("- 없음")
+
+                        st.markdown("**정상/실습 근거**")
+                        if benign_context:
+                            for item_text in benign_context:
+                                st.write(f"- {item_text}")
+                        else:
+                            st.write("- 없음")
+
+                        st.markdown("**권고 조치**")
+                        st.write(recommended_action)
+
+
+
                 st.divider()
                 st.markdown("**탐지 결과**")
 
@@ -534,19 +753,10 @@ def render_defense():
                                 st.write("대응 가이드:")
                                 for g in rule_guides:
                                     st.write(f"- {g}")
+
                 else:
                     st.info("매칭된 탐지 룰이 없습니다.")
 
-                # 기존 구조와의 호환을 위해 통합 사유/대응 가이드도 함께 출력
-                if reasons:
-                    with st.expander("통합 탐지 사유 보기", expanded=False):
-                        for r in reasons:
-                            st.write(f"- {r}")
-
-                if response_guide:
-                    with st.expander("통합 대응 가이드 보기", expanded=False):
-                        for g in response_guide:
-                            st.write(f"- {g}")
 
                 st.divider()
                 show_detail = st.toggle(
