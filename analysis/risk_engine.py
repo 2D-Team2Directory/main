@@ -33,13 +33,16 @@ def _to_int(value: Any, default: int = 0) -> int:
 
 
 def _severity_from_score(score: int) -> str:
-    if score >= 80:
-        return "high"
-    if score >= 50:
-        return "medium"
-    if score > 0:
-        return "low"
-    return "none"
+    if score >= 90:
+        return "critical"   # 당장 격리 및 즉각 대응 필요 (SOC 비상)
+    elif score >= 70:
+        return "high"       # 침해 징후 농후 (우선 분석)
+    elif score >= 40:
+        return "medium"     # 이상 행위 주의 단계 (일반 관제)
+    elif score > 0:
+        return "low"        # 단순 특이 사항
+    else:
+        return "none"       # 정상 행위
 
 
 def _parse_time(value: Optional[str]) -> Optional[datetime]:
@@ -132,57 +135,74 @@ def _build_base_score(normalized: dict, detection: dict) -> tuple[int, list[str]
     reasons = []
 
     event_type = normalized.get("event_type")
+    detected = detection.get("detected", False)
+
+    rule_score = _to_int(detection.get("rule_score"), 0)
+    if rule_score:
+        score = max(score, rule_score)
+        reasons.append(f"대표 룰 점수 반영({rule_score})")
+
+    matched_scores = []
+    for rule in detection.get("matched_rules") or []:
+        matched_scores.append(_to_int(rule.get("rule_score"), 0))
+        matched_scores.append(_to_int((rule.get("risk") or {}).get("final_score"), 0))
+
+    matched_scores = [s for s in matched_scores if s > 0]
+    if matched_scores:
+        rule_max = max(matched_scores)
+        score = max(score, rule_max)
+        reasons.append(f"매칭 룰 최고 점수 반영({rule_max})")
+
+
+    if score == 0:
+        if event_type == "login_failure":
+            score += 15
+            reasons.append("로그인 실패 이벤트 기본 점수")
+        elif event_type == "login_success":
+            score += 10
+            reasons.append("로그인 성공 이벤트 기본 점수")
+        elif event_type == "group_change":
+            score += 60
+            reasons.append("그룹 변경 이벤트 기본 점수")
+        elif event_type == "kerberos_request":
+            score += 40
+            reasons.append("Kerberos 요청 이벤트 기본 점수")
+        elif event_type == "process_create":
+            score += 20
+            reasons.append("프로세스 생성 이벤트 기본 점수")
+        elif event_type == "network_connection":
+            score += 20
+            reasons.append("네트워크 연결 이벤트 기본 점수")
+
+
+    if detected:
+        score += 25
+        reasons.append("룰 탐지 매칭")
+
+    return score, reasons
+
+
+def _calculate_context_weight(normalized: dict) -> tuple[float, list[str]]:
+    weight = 1.0
+    reasons = []
+
     is_privileged = (
         normalized.get("is_privileged")
         or normalized.get("is_privileged_account")
         or normalized.get("is_admin_account")
     )
     is_off_hours = normalized.get("is_off_hours")
-    detected = detection.get("detected", False)
-
-    if event_type == "login_failure":
-        score += 20
-        reasons.append("로그인 실패 이벤트")
-    elif event_type == "login_success":
-        score += 10
-        reasons.append("로그인 성공 이벤트")
-    elif event_type == "group_change":
-        score += 60
-        reasons.append("그룹 변경 이벤트")
-    elif event_type == "kerberos_request":
-        score += 40
-        reasons.append("Kerberos 요청 이벤트")
-    elif event_type == "process_create":
-        score += 20
-        reasons.append("프로세스 생성 이벤트")
-    elif event_type == "network_connection":
-        score += 20
-        reasons.append("네트워크 연결 이벤트")
 
     if is_privileged:
-        score += 20
-        reasons.append("관리자/서비스 등 특권 계정 관련")
+        weight += 0.4
+        reasons.append("특권/관리자/서비스 계정 관련으로 1.4배 가중")
 
     if is_off_hours:
-        score += 15
-        reasons.append("업무 외 시간 발생")
+        weight += 0.3
+        reasons.append("업무 외 시간 발생으로 1.3배 가중")
 
-    if detected:
-        score += 25
-        reasons.append("룰 탐지 매칭")
+    return weight, reasons
 
-    # 룰 자체 점수가 있으면 그 점수도 참고한다.
-    # 여러 룰이 매칭된 경우 가장 높은 룰 점수를 기준으로 보강.
-    matched_scores = []
-    for rule in detection.get("matched_rules") or []:
-        matched_scores.append(_to_int((rule.get("risk") or {}).get("final_score"), 0))
-
-    if matched_scores:
-        rule_max = max(matched_scores)
-        score = max(score, rule_max)
-        reasons.append(f"매칭 룰 최고 점수 반영({rule_max})")
-
-    return score, reasons
 
 
 def calculate_risk(
@@ -192,8 +212,13 @@ def calculate_risk(
     scenario_runs: Optional[list[dict]] = None,
 ) -> dict:
     base_score, base_reasons = _build_base_score(normalized, detection)
-    final_score = base_score
-    context_weight = 0
+
+    risk_weight, weight_reasons = _calculate_context_weight(normalized)
+    weighted_score = min(round(base_score * risk_weight), 100)
+
+    scenario_adjustment = 0
+    # final_score = base_score
+    # context_weight = 0
 
     rule_context = {
         "enabled": False,
@@ -224,18 +249,18 @@ def calculate_risk(
         rule_context["related_scenario"] = related_scenario
 
         if related_type == "tools" and _is_tool_detection(detection):
-            context_weight -= 35
+            scenario_adjustment -= 35
             rule_context["reasons"].append("정찰 도구 탐지 룰과 승인된 tools 실행 이력이 시간대상 일치")
             rule_context["verdict"] = "expected_tool_activity"
             rule_context["summary"] = "승인된 정찰 도구 실행으로 인한 탐지 가능성이 높습니다."
 
         elif related_type == "detection_test":
-            context_weight -= 25
+            scenario_adjustment -= 25
             rule_context["reasons"].append("detection_test 시나리오 실행 이력과 시간대상 일치")
             rule_context["verdict"] = "expected_detection_test"
             rule_context["summary"] = "승인된 탐지 테스트 시나리오로 인한 이벤트 가능성이 높습니다."
 
-        rule_context["applied"] = context_weight != 0
+        rule_context["applied"] = scenario_adjustment != 0
 
     # 도구 룰인데 실행 이력이 없으면 오히려 의심도 상승
     elif _is_tool_detection(detection):
@@ -247,16 +272,22 @@ def calculate_risk(
             "related_scenario": None,
             "reasons": ["PowerView/PingCastle/BloodHound 계열 탐지 룰 매칭", "동일 시간대 승인된 tools 실행 이력 없음"],
         })
-        context_weight += 10
+        scenario_adjustment += 10
 
-    final_score = max(0, min(100, base_score + context_weight))
+    final_score = max(0, min(100, base_score + scenario_adjustment))
     severity = _severity_from_score(final_score)
 
     return {
+        "rule_id": detection.get("rule_id"),
+        "rule_name": detection.get("rule_name"),
         "base_score": base_score,
-        "weight": context_weight,
+        "risk_weight": round(risk_weight, 1),
+        "weight": round(risk_weight, 1),  # 기존 화면/LLM 호환용
+        "weighted_score": weighted_score,
+        "scenario_adjustment": scenario_adjustment,
         "final_score": final_score,
         "severity": severity,
         "base_reasons": base_reasons,
+        "weight_reasons": weight_reasons,
         "rule_context": rule_context,
     }

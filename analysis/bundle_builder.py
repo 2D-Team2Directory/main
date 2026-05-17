@@ -11,6 +11,7 @@ def build_default_detection() -> dict:
         # 대표 탐지 정보: 기존 risk_engine / 기존 대시보드 호환용
         "rule_id": None,
         "rule_name": None,
+        "rule_score": 0,
         "reason": [],
         "attack_tactic": None,
         "attack_technique": None,
@@ -130,6 +131,7 @@ def build_event_bundle(
         primary = max(detection_results, key=_score_value)
         detection["rule_id"] = primary.get("rule_id")
         detection["rule_name"] = primary.get("rule_name")
+        detection["rule_score"] = primary.get("rule_score", 0)
         detection["attack_tactic"] = primary.get("attack_tactic")
         detection["attack_technique"] = primary.get("attack_technique")
 
@@ -142,6 +144,7 @@ def build_event_bundle(
             detection["matched_rules"].append({
                 "rule_id": rule_id,
                 "rule_name": rule_name,
+                "rule_score": res.get("rule_score", 0),
                 "reason": _as_list(res.get("reason")),
                 "attack_tactic": res.get("attack_tactic"),
                 "attack_technique": res.get("attack_technique"),
@@ -158,9 +161,9 @@ def build_event_bundle(
 
     # 5. 위험도 계산
     risk = calculate_risk(
-        event=event,
-        normalized=normalized,
-        detection=detection,
+        event,
+        normalized,
+        detection,
         scenario_runs=scenario_runs,
     )
 
