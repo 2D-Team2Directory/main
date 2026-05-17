@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional
+from risk_engine import calculate_risk
 
 def _get_field_value(field: str, event_dict: Dict[str, Any], normalized: Dict[str, Any]) -> Any:
     # 우선순위: normalized > event_dict (태우님이 정규화해주는 데이터를 우선 신뢰)
