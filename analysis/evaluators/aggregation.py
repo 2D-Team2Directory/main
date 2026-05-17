@@ -42,34 +42,33 @@ def _apply_score_modifiers(
     event_dict: Dict[str, Any],
     normalized: Dict[str, Any],
 ) -> Dict[str, Any]:
-    weight = 0
+    weight_multiplier = 1.0
 
-    for modifier in rule.get("score_modifiers", []):
-        field = modifier.get("field")
-        op = modifier.get("op")
-        expected = modifier.get("value")
-        add_value = int(modifier.get("add", 0))
+    is_privileged = normalized.get("is_privileged", False) or event_dict.get("is_admin_account", False)
+    is_off_hours = normalized.get("is_off_hours", False)
 
-        actual = _get_field_value(field, event_dict, normalized)
+    if is_privileged:
+        weight_multiplier += 0.4
+        
+    if is_off_hours:
+        weight_multiplier += 0.3
 
-        if op == "eq" and actual == expected:
-            weight += add_value
+    calculated_score = base_score * weight_multiplier
+    final_score = min(round(calculated_score), 100)
 
-    final_score = base_score + weight
-
-    if final_score >= 80:
+    if final_score >= 90:
         severity = "critical"
-    elif final_score >= 60:
+    elif final_score >= 70:
         severity = "high"
-    elif final_score >= 30:
+    elif final_score >= 40:
         severity = "medium"
     elif final_score > 0:
         severity = "low"
     else:
-        severity = rule.get("severity", "low")
+        severity = "none"
 
     return {
-        "weight": weight,
+        "weight": round(weight_multiplier, 1),
         "final_score": final_score,
         "severity": severity,
     }
