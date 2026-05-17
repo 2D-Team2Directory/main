@@ -721,3 +721,93 @@ rules:
     response_guide:
       - 원격에서 네트워크 공유를 통한 비밀번호 무차별 대입 공격 의심
       - 소스 IP(source_ip)에 대한 즉각적인 접근 제한 및 조사 실시
+
+      # RULE-071: 특권 권한 할당 (Special Privileges)
+  - rule_id: RULE-071
+    name: 관리자급 특권 권한 할당 탐지
+    type: single_event
+    enabled: true
+    match:
+      event_id: "4672"
+    severity: medium
+    score: 40
+    attack:
+      tactic: Privilege Escalation
+      technique: T1078
+    response_guide:
+      - 로그온한 계정이 시스템 관리자 권한(SeDebugPrivilege 등)을 가질 자격이 있는지 확인
+      - 일반 사용자 계정에서 해당 이벤트 발생 시 즉시 조사
+
+  # RULE-072: Kerberos 사전 인증 실패 급증 (Brute Force / Password Spraying)
+  - rule_id: RULE-072
+    name: Kerberos 사전 인증 실패(4771) 급증
+    type: aggregation
+    enabled: true
+    match:
+      event_id: "4771"
+    group_by: [source_ip]
+    window:
+      minutes: 5
+    threshold:
+      count_gte: 20
+    severity: high
+    score: 80
+    attack:
+      tactic: Credential Access
+      technique: T1110.003
+    response_guide:
+      - 특정 IP에서 다수의 계정 혹은 단일 계정으로 무차별 대입 공격 중인지 확인
+      - 공격 원점 IP에 대한 네트워크 차단 실시
+
+  # RULE-073: 관리자 계정의 네트워크 로그온 (Lateral Movement)
+  - rule_id: RULE-073
+    name: 관리자 계정의 네트워크 로그온(Type 3) 성공
+    type: single_event
+    enabled: true
+    match:
+      event_id: "4624"
+      logon_type: "3"
+      is_admin_account: true
+    severity: high
+    score: 70
+    attack:
+      tactic: Lateral Movement
+      technique: T1021.002
+    response_guide:
+      - 관리자 권한을 가진 계정이 원격에서 SMB/RPC 등을 통해 다른 서버로 접근했는지 확인
+      - 일반적인 관리 업무 시간대인지, 인가된 관리 단말기인지 검토
+
+  # RULE-074: 취약한 암호화(RC4)를 사용한 TGS 요청 (Kerberoasting)
+  - rule_id: RULE-074
+    name: 취약한 암호화(RC4) 방식의 Kerberos TGS 요청
+    type: single_event
+    enabled: true
+    match:
+      event_id: "4769"
+      ticket_encryption_type: "0x17" # RC4-HMAC
+    severity: high
+    score: 85
+    attack:
+      tactic: Credential Access
+      technique: T1558.003
+    response_guide:
+      - 오프라인 해시 크래킹(Kerberoasting) 시도 가능성이 매우 높음
+      - 요청된 서비스 계정(SPN)의 비밀번호를 복잡한 문자열로 변경 권고
+
+  # RULE-075: 관리자 계정의 네트워크 로그온 실패 (Brute Force)
+  - rule_id: RULE-075
+    name: 관리자 계정 대상 네트워크 로그온(Type 3) 실패
+    type: single_event
+    enabled: true
+    match:
+      event_id: "4625"
+      logon_type: "3"
+      is_admin_account: true
+    severity: high
+    score: 75
+    attack:
+      tactic: Credential Access
+      technique: T1110
+    response_guide:
+      - 외부 또는 내부망에서 관리자 권한 탈취를 위해 무차별 대입 중인지 확인
+      - 대상 관리자 계정의 상태(잠금 등) 확인
