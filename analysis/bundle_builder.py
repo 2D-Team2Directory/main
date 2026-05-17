@@ -11,6 +11,7 @@ def build_default_detection() -> dict:
         # 대표 탐지 정보: 기존 risk_engine / 기존 대시보드 호환용
         "rule_id": None,
         "rule_name": None,
+        "rule_score": 0,
         "reason": [],
         "attack_tactic": None,
         "attack_technique": None,
@@ -43,7 +44,7 @@ def _unique_keep_order(values: List[Any]) -> List[Any]:
 
 def _score_value(result: Dict[str, Any]) -> int:
     try:
-        return int((result.get("risk") or {}).get("final_score", 0))
+        return int(result.get("rule_score") or (result.get("risk") or {}).get("final_score", 0))
     except Exception:
         return 0
 
@@ -121,6 +122,7 @@ def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]]
         primary = max(detection_results, key=_score_value)
         detection["rule_id"] = primary.get("rule_id")
         detection["rule_name"] = primary.get("rule_name")
+        detection["rule_score"] = primary.get("rule_score", 0)
         detection["attack_tactic"] = primary.get("attack_tactic")
         detection["attack_technique"] = primary.get("attack_technique")
 
@@ -133,6 +135,7 @@ def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]]
             detection["matched_rules"].append({
                 "rule_id": rule_id,
                 "rule_name": rule_name,
+                "rule_score": res.get("rule_score", 0),
                 "reason": _as_list(res.get("reason")),
                 "attack_tactic": res.get("attack_tactic"),
                 "attack_technique": res.get("attack_technique"),
@@ -148,7 +151,7 @@ def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]]
         detection["response_guide"] = _unique_keep_order(detection["response_guide"])
 
     # 5. 위험도 계산
-    risk = calculate_risk(event, normalized, detection)
+    risk = calculate_risk(event_dict, normalized, detection)
 
     try:
         original_event = json.loads(event.raw_json) if event.raw_json else {}

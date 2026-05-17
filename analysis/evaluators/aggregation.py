@@ -42,33 +42,39 @@ def _apply_score_modifiers(
     event_dict: Dict[str, Any],
     normalized: Dict[str, Any],
 ) -> Dict[str, Any]:
-    weight_multiplier = 1.0
+    """
+    risk_engine.py의 가중치 및 등급 산정 로직과 일치하도록 수정되었습니다.
+    """
+    # 1. 기본 배수(Weight) 설정
+    weight = 1.0
 
-    is_privileged = normalized.get("is_privileged", False) or event_dict.get("is_admin_account", False)
+    is_privileged = normalized.get("is_privileged", False)
     is_off_hours = normalized.get("is_off_hours", False)
 
     if is_privileged:
-        weight_multiplier += 0.4
-        
+        weight += 0.4  # 특권 계정 악용 우려 시 +0.4 가산 (1.4배)
+       
     if is_off_hours:
-        weight_multiplier += 0.3
+        weight += 0.3  # 비업무 시간대(새벽/주말) 행위 시 +0.3 가산 (1.3배)
 
-    calculated_score = base_score * weight_multiplier
+    # 2. 최종 점수 계산 (반올림 적용 및 100점 상한선 고정)
+    calculated_score = base_score * weight
     final_score = min(round(calculated_score), 100)
 
+    # 3. 상한선 100점 기준 임계치 등급 판정 (risk_engine.py와 동일하게 5단계 동기화)
     if final_score >= 90:
-        severity = "critical"
+        severity = "critical"   # 당장 격리 및 즉각 대응 필요 (SOC 비상)
     elif final_score >= 70:
-        severity = "high"
+        severity = "high"       # 침해 징후 농후 (우선 분석)
     elif final_score >= 40:
-        severity = "medium"
+        severity = "medium"     # 이상 행위 주의 단계 (일반 관제)
     elif final_score > 0:
-        severity = "low"
+        severity = "low"        # 단순 특이 사항
     else:
-        severity = "none"
+        severity = "none"       # 정상 행위
 
     return {
-        "weight": round(weight_multiplier, 1),
+        "weight": round(weight, 1),
         "final_score": final_score,
         "severity": severity,
     }
